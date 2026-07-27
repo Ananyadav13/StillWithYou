@@ -1,0 +1,338 @@
+{
+  "_about": {
+    "purpose": "Hand-written evaluation corpus for Phase 3 (English / Hindi / Hinglish). Not generated — each message was written deliberately and each expected_mood was assigned by reading the message, before any model was run against it.",
+    "mood_labels": ["calm", "neutral", "frustrated", "angry"],
+    "language_tags": ["en", "hi", "hi-en-mixed"],
+    "relationship_note": "StillWithYou mediates communication between any two people, not couples. Writing everything as partner-to-partner would bake in an assumed baseline of intimacy and empathy that most real conversations do not have. So these 30 span friends, roommates, siblings, classmates, colleagues and family — and the `context` field on each entry records which, so a later reader can check the spread rather than trust it.",
+    "distinctness_note": "All 30 messages are different. An earlier draft of this file was 10 messages rendered in three languages; that measures translation consistency, not per-language accuracy, and it lets one badly-chosen message skew all three categories at once.",
+    "register_note": "The Hinglish entries use the compressed spellings people actually type — nhi, h, rhi, mai, gyi, rha, kr, bhut — not textbook transliteration. Clean Hinglish would flatter the Step 3 detector against input it will never see.",
+    "balance_note": "15 per language: 3 calm, 3 neutral, 4 frustrated, 5 angry. An earlier draft had n=2 for frustrated and angry, where a single wrong call moves a category accuracy by 50 points — closer to noise than measurement, in exactly the two categories this product exists to detect.",
+    "lexicon_independence_note": "Items 11-15 in each language are deliberately free of every term in the analyzer's own escalation lexicon (pathetic, stupid, useless, बकवास, बेवकूफ, नफरत, bakwas, bewakoof, pagal, jhoot, ...). In the first 10, four angry fixtures contained lexicon words and were graded correct by keyword lookup rather than by the model — measuring the lexicon against vocabulary the same author chose. These 15 express anger through finality, withdrawal, cold refusal and sarcasm instead, so the model has to earn the label from tone. Expect them to be harder.",
+    "label_rubric": {
+      "calm": "warm or settled; affection, thanks, encouragement, reassurance. Nothing to repair.",
+      "neutral": "logistics and information. No emotional charge in either direction.",
+      "frustrated": "irritation aimed at a situation or a repeated lapse. Complains about behaviour or an event.",
+      "angry": "contempt or a verdict on the person — insults, character judgements, stated dislike, or cold withdrawal from the relationship."
+    },
+    "count": 45
+  },
+  "samples": [
+    {
+      "id": "en-01",
+      "text": "All the best for tomorrow's round, that role is basically written for you.",
+      "language": "en",
+      "expected_mood": "calm",
+      "context": "friend, before an interview"
+    },
+    {
+      "id": "en-02",
+      "text": "You covered for me in that meeting and I didn't even ask. Thank you, genuinely.",
+      "language": "en",
+      "expected_mood": "calm",
+      "context": "colleague, gratitude"
+    },
+    {
+      "id": "en-03",
+      "text": "Don't stress about the result. You did what you could with the time you had.",
+      "language": "en",
+      "expected_mood": "calm",
+      "context": "sibling, reassurance"
+    },
+    {
+      "id": "en-04",
+      "text": "Electricity bill came, it's 2400 split three ways. Sending the QR in a bit.",
+      "language": "en",
+      "expected_mood": "neutral",
+      "context": "roommate, logistics"
+    },
+    {
+      "id": "en-05",
+      "text": "Library shuts at 8 today, not 10. Moving the group meet to the cafe downstairs.",
+      "language": "en",
+      "expected_mood": "neutral",
+      "context": "study group, logistics"
+    },
+    {
+      "id": "en-06",
+      "text": "Sent you the deck. Slide 12 is the one they'll ask about, so read that one twice.",
+      "language": "en",
+      "expected_mood": "neutral",
+      "context": "colleague, handover"
+    },
+    {
+      "id": "en-07",
+      "text": "The sink has been full since Sunday. I'm not doing it a fourth time this month.",
+      "language": "en",
+      "expected_mood": "frustrated",
+      "context": "roommate, chores"
+    },
+    {
+      "id": "en-08",
+      "text": "You said you'd push your part by Friday and it's Monday. I've been blocked all weekend.",
+      "language": "en",
+      "expected_mood": "frustrated",
+      "context": "group project, missed deadline"
+    },
+    {
+      "id": "en-09",
+      "text": "You repeated something I told you in confidence. That is a genuinely pathetic thing to do.",
+      "language": "en",
+      "expected_mood": "angry",
+      "context": "friend, betrayed trust"
+    },
+    {
+      "id": "en-10",
+      "text": "Stop pretending you didn't see it. You always do this and then act surprised.",
+      "language": "en",
+      "expected_mood": "angry",
+      "context": "colleague, avoidance"
+    },
+    {
+      "id": "en-11",
+      "text": "This is the third time I've had to move your car before I could leave for work.",
+      "language": "en",
+      "expected_mood": "frustrated",
+      "context": "neighbour, repeated inconvenience"
+    },
+    {
+      "id": "en-12",
+      "text": "I sat in that review for an hour and you didn't mention my part once.",
+      "language": "en",
+      "expected_mood": "frustrated",
+      "context": "colleague, uncredited work"
+    },
+    {
+      "id": "en-13",
+      "text": "Don't bother explaining. I heard exactly what you said about me.",
+      "language": "en",
+      "expected_mood": "angry",
+      "context": "friend, overheard remark"
+    },
+    {
+      "id": "en-14",
+      "text": "I'm not covering for you again. Sort out your own mess this time.",
+      "language": "en",
+      "expected_mood": "angry",
+      "context": "colleague, cold refusal"
+    },
+    {
+      "id": "en-15",
+      "text": "Forget it. I'm done asking you for anything.",
+      "language": "en",
+      "expected_mood": "angry",
+      "context": "sibling, withdrawal"
+    },
+
+    {
+      "id": "hi-01",
+      "text": "जन्मदिन मुबारक हो! इस साल तुम्हें वो सब मिले जिसके तुम सच में हकदार हो।",
+      "language": "hi",
+      "expected_mood": "calm",
+      "context": "friend, birthday wish"
+    },
+    {
+      "id": "hi-02",
+      "text": "खाना समय पर खा लेना और तबीयत का ध्यान रखना। बाकी सब ठीक हो जाएगा।",
+      "language": "hi",
+      "expected_mood": "calm",
+      "context": "parent to child, care"
+    },
+    {
+      "id": "hi-03",
+      "text": "कोई बात नहीं यार, अगली बार हो जाएगा। तुमने पूरी कोशिश तो की थी।",
+      "language": "hi",
+      "expected_mood": "calm",
+      "context": "friend, consolation after a rejection"
+    },
+    {
+      "id": "hi-04",
+      "text": "पानी का बिल आ गया है, बारह सौ रुपये का। आधा आधा कर लेते हैं।",
+      "language": "hi",
+      "expected_mood": "neutral",
+      "context": "roommate, splitting a bill"
+    },
+    {
+      "id": "hi-05",
+      "text": "मीटिंग तीन बजे की जगह चार बजे शिफ्ट हो गई है। कैलेंडर अपडेट कर दिया है।",
+      "language": "hi",
+      "expected_mood": "neutral",
+      "context": "colleague, schedule change"
+    },
+    {
+      "id": "hi-06",
+      "text": "ट्रेन किस प्लेटफॉर्म पर आ रही है, पता चला क्या?",
+      "language": "hi",
+      "expected_mood": "neutral",
+      "context": "family, travel question"
+    },
+    {
+      "id": "hi-07",
+      "text": "बर्तन तीन दिन से वैसे ही पड़े हैं। हर बार मुझे ही करना पड़ता है।",
+      "language": "hi",
+      "expected_mood": "frustrated",
+      "context": "roommate, chores"
+    },
+    {
+      "id": "hi-08",
+      "text": "दो घंटे से जवाब का इंतज़ार कर रहा हूँ। कम से कम बता तो देते।",
+      "language": "hi",
+      "expected_mood": "frustrated",
+      "context": "friend, being left on read"
+    },
+    {
+      "id": "hi-09",
+      "text": "मेरी चीज़ें बिना पूछे मत छुआ करो। तुम्हें कोई तमीज़ ही नहीं है।",
+      "language": "hi",
+      "expected_mood": "angry",
+      "context": "sibling, boundary violation"
+    },
+    {
+      "id": "hi-10",
+      "text": "अपनी गलती मान लो बस। सारा इल्ज़ाम मुझ पर डालना बंद करो, बकवास लगता है।",
+      "language": "hi",
+      "expected_mood": "angry",
+      "context": "colleague, blame-shifting"
+    },
+    {
+      "id": "hi-11",
+      "text": "तीसरी बार तुम्हारी गाड़ी हटानी पड़ी मुझे ऑफिस निकलने से पहले।",
+      "language": "hi",
+      "expected_mood": "frustrated",
+      "context": "neighbour, repeated inconvenience"
+    },
+    {
+      "id": "hi-12",
+      "text": "पूरी मीटिंग में मेरे काम का ज़िक्र तक नहीं किया तुमने।",
+      "language": "hi",
+      "expected_mood": "frustrated",
+      "context": "colleague, uncredited work"
+    },
+    {
+      "id": "hi-13",
+      "text": "रहने दो, सफाई मत दो। मैंने खुद सुना है तुमने मेरे बारे में क्या कहा।",
+      "language": "hi",
+      "expected_mood": "angry",
+      "context": "friend, overheard remark"
+    },
+    {
+      "id": "hi-14",
+      "text": "अब तुम्हारा बचाव मैं नहीं करूँगा। अपनी गड़बड़ खुद संभालो।",
+      "language": "hi",
+      "expected_mood": "angry",
+      "context": "colleague, cold refusal"
+    },
+    {
+      "id": "hi-15",
+      "text": "छोड़ो। अब तुमसे कुछ माँगना ही नहीं है मुझे।",
+      "language": "hi",
+      "expected_mood": "angry",
+      "context": "sibling, withdrawal"
+    },
+
+    {
+      "id": "hinglish-01",
+      "text": "Thak gyi hogi tu, aaj kuch mat kar, seedha so ja. Baaki kal dekh lenge.",
+      "language": "hi-en-mixed",
+      "expected_mood": "calm",
+      "context": "friend, looking out for someone tired"
+    },
+    {
+      "id": "hinglish-02",
+      "text": "All the best bro, tu bas apna best de dena. Baaki result apne aap aa jayega.",
+      "language": "hi-en-mixed",
+      "expected_mood": "calm",
+      "context": "friend, before an exam"
+    },
+    {
+      "id": "hinglish-03",
+      "text": "Sorry mai so rhi thi, time pe wish nhi kar paayi. But genuinely bhut khush hu tere liye.",
+      "language": "hi-en-mixed",
+      "expected_mood": "calm",
+      "context": "friend, belated congratulations"
+    },
+    {
+      "id": "hinglish-04",
+      "text": "Wifi ka bill 999 aaya h, mai pay kr deta hu, tu baad me de dena.",
+      "language": "hi-en-mixed",
+      "expected_mood": "neutral",
+      "context": "roommate, logistics"
+    },
+    {
+      "id": "hinglish-05",
+      "text": "Class 9 baje shift ho gyi h, notice board pe laga tha. Baakiyon ko bata dena.",
+      "language": "hi-en-mixed",
+      "expected_mood": "neutral",
+      "context": "classmate, passing on information"
+    },
+    {
+      "id": "hinglish-06",
+      "text": "Maine file drive pe daal di h. Na khule to access maang lena.",
+      "language": "hi-en-mixed",
+      "expected_mood": "neutral",
+      "context": "colleague, file handover"
+    },
+    {
+      "id": "hinglish-07",
+      "text": "Yaar tune phir se poori raat light on chhod di. Bill dono ka aata h.",
+      "language": "hi-en-mixed",
+      "expected_mood": "frustrated",
+      "context": "roommate, repeated carelessness"
+    },
+    {
+      "id": "hinglish-08",
+      "text": "Har baar last moment pe plan cancel kr deta h tu. Ab plan banane ka matlab hi kya h.",
+      "language": "hi-en-mixed",
+      "expected_mood": "frustrated",
+      "context": "friend, repeatedly cancelled plans"
+    },
+    {
+      "id": "hinglish-09",
+      "text": "Tu apna kaam kr hi nhi rha aur ulta mujhe hi sunata h. Bilkul bakwas hai ye.",
+      "language": "hi-en-mixed",
+      "expected_mood": "angry",
+      "context": "group project, freeloading teammate"
+    },
+    {
+      "id": "hinglish-10",
+      "text": "Jo baat maine tujhe akele me boli thi wo sabko bata di? Bewakoof samjha h kya mujhe.",
+      "language": "hi-en-mixed",
+      "expected_mood": "angry",
+      "context": "friend, broken confidence"
+    },
+    {
+      "id": "hinglish-11",
+      "text": "Teesri baar h ki mujhe teri gaadi hatani padi office nikalne se pehle.",
+      "language": "hi-en-mixed",
+      "expected_mood": "frustrated",
+      "context": "neighbour, repeated inconvenience"
+    },
+    {
+      "id": "hinglish-12",
+      "text": "Poori meeting me mere kaam ka naam tak nhi liya tune.",
+      "language": "hi-en-mixed",
+      "expected_mood": "frustrated",
+      "context": "colleague, uncredited work"
+    },
+    {
+      "id": "hinglish-13",
+      "text": "Rehne de, safai mt de. Maine khud suna h tune mere baare me kya bola.",
+      "language": "hi-en-mixed",
+      "expected_mood": "angry",
+      "context": "friend, overheard remark"
+    },
+    {
+      "id": "hinglish-14",
+      "text": "Ab teri side mai nhi lunga. Apna mess khud sambhal.",
+      "language": "hi-en-mixed",
+      "expected_mood": "angry",
+      "context": "colleague, cold refusal"
+    },
+    {
+      "id": "hinglish-15",
+      "text": "Chhod de. Ab tujhse kuch maangna hi nhi h mujhe.",
+      "language": "hi-en-mixed",
+      "expected_mood": "angry",
+      "context": "sibling, withdrawal"
+    }
+  ]
+}

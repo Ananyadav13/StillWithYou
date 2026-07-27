@@ -8,7 +8,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-AnalysisSource = Literal["gemini", "local_fallback"]
+AnalysisSource = Literal["gemini", "local_fallback", "multilingual_local"]
 
 
 class AnalysisResult(BaseModel):

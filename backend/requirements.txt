@@ -13,3 +13,11 @@ google-genai==2.14.0
 # Phase 2: async job queue + circuit breaker/cache state
 arq==0.28.0
 prometheus-client==0.21.1
+
+# Phase 3: local multilingual analysis (en / hi / hi-en-mixed). CPU only —
+# install torch from the CPU index or pip pulls ~2.5GB of CUDA wheels:
+#   pip install --index-url https://download.pytorch.org/whl/cpu torch
+torch==2.13.0
+transformers==4.57.1
+sentencepiece==0.2.2
+protobuf==7.35.1
