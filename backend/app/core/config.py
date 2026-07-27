@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     )
 
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/stillwithyou"
+    redis_url: str = "redis://localhost:6379/0"
 
     gemini_api_key: str | None = None
     # gemini-2.0-flash / 2.0-flash-lite / 2.5-pro all report quota "limit: 0" on
