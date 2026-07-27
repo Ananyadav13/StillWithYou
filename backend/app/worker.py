@@ -17,7 +17,10 @@ from app.core.logging import configure_logging, log_event, track_analysis
 from app.core.queue import redis_settings
 from app.models.message import AnalysisStatus, Message
 from app.schemas.analysis import AnalysisResult
+from app.services.cache import get_cached, set_cached
+from app.services.circuit_breaker import gemini_breaker
 from app.services.gemini import GeminiError, analyze_message, get_client
+from app.services.local_fallback import analyze_locally
 
 
 async def _write_result(
@@ -27,6 +30,7 @@ async def _write_result(
     values: dict[str, Any] = {"analysis_status": status}
     if result is not None:
         values.update(
+            analysis_source=result.source,
             mood=result.mood,
             toxicity_score=result.toxicity_score,
             heat_score=result.heat_score,
@@ -47,18 +51,54 @@ async def analyze_message_job(ctx: dict[str, Any], message_id: str, content: str
     and leave the row in `pending`. Every path ends in `complete` or `failed`.
     """
     result: AnalysisResult | None = None
-    status = AnalysisStatus.failed
+    degraded_reason: str | None = None
 
     with track_analysis(message_id, event="analysis_job") as track:
-        try:
-            result = await analyze_message(content)
-            status = AnalysisStatus.complete
-            track.success(source=result.source, mood=result.mood)
-        except GeminiError as exc:
-            track.error(failure_kind=exc.kind, error=str(exc)[:200])
+        # Cache first: a hit costs one Redis GET and skips both the circuit breaker
+        # and the network entirely.
+        cached = await get_cached(content, message_id=message_id)
+        if cached is not None:
+            track.success(source=cached.source, mood=cached.mood, cache="hit")
+            await _write_result(message_id, cached, AnalysisStatus.complete)
+            return AnalysisStatus.complete.value
 
-    await _write_result(message_id, result, status)
-    return status.value
+        allowed, circuit_state = await gemini_breaker.allow()
+
+        if not allowed:
+            # Short-circuit: refuse without touching the network. This is the whole
+            # point of the breaker — when Gemini is known-down, a refused call costs
+            # a Redis round trip instead of a 3s timeout.
+            degraded_reason = "circuit_open"
+        else:
+            try:
+                result = await analyze_message(content)
+                await gemini_breaker.record_success()
+                track.success(
+                    source=result.source, mood=result.mood, circuit_state=circuit_state
+                )
+            except GeminiError as exc:
+                await gemini_breaker.record_failure(exc.kind)
+                degraded_reason = exc.kind
+
+        if result is None:
+            # Every failure path lands here, so there is no route to a stuck row.
+            # The local analyzer cannot raise and cannot block, which is what makes
+            # `complete` reachable even with the dependency completely gone.
+            result = analyze_locally(content)
+            track.fallback(
+                source=result.source,
+                mood=result.mood,
+                reason=degraded_reason,
+                circuit_state=circuit_state,
+            )
+
+    await set_cached(content, result)
+
+    # Unconditionally `complete`: a result exists either way. `failed` is now
+    # reserved for the case where even the fallback could not run, which is only
+    # reachable if the database write itself fails.
+    await _write_result(message_id, result, AnalysisStatus.complete)
+    return AnalysisStatus.complete.value
 
 
 async def ping_job(ctx: dict[str, Any]) -> str:
