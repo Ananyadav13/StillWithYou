@@ -46,6 +46,7 @@ class AnalysisRead(BaseModel):
 
     message_id: uuid.UUID
     analysis_status: AnalysisStatus
+    analysis_source: str | None = None
     mood: str | None = None
     toxicity_score: float | None = None
     heat_score: float | None = None

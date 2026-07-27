@@ -40,6 +40,9 @@ class Message(Base):
         server_default=AnalysisStatus.pending.value,
         index=True,
     )
+    # Which engine produced the scores below: "gemini" or "local_fallback". Kept so
+    # a degraded result is never mistaken for a full-fidelity one downstream.
+    analysis_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
     mood: Mapped[str | None] = mapped_column(String(32), nullable=True)
     toxicity_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     heat_score: Mapped[float | None] = mapped_column(Float, nullable=True)

@@ -69,6 +69,7 @@ async def get_message_analysis(
     return AnalysisRead(
         message_id=message.id,
         analysis_status=message.analysis_status,
+        analysis_source=message.analysis_source,
         mood=message.mood,
         toxicity_score=message.toxicity_score,
         heat_score=message.heat_score,
