@@ -16,7 +16,15 @@ class Settings(BaseSettings):
         validation_alias="CORS_ORIGINS",
     )
 
+    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/stillwithyou"
+
     gemini_api_key: str | None = None
+    # gemini-2.0-flash / 2.0-flash-lite / 2.5-pro all report quota "limit: 0" on
+    # the current key; gemini-3.5-flash-lite is the fastest model that answers.
+    gemini_model: str = "gemini-3.5-flash-lite"
+    # The SLO in docs/phase2-slo.md budgets 2s end-to-end for an analysis result;
+    # 3s is the hard ceiling past which a call counts as a timeout failure.
+    gemini_timeout_seconds: float = 3.0
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
