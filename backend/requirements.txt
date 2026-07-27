@@ -12,3 +12,4 @@ google-genai==2.14.0
 
 # Phase 2: async job queue + circuit breaker/cache state
 arq==0.28.0
+prometheus-client==0.21.1

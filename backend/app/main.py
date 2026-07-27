@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.logging import configure_logging, log_event
 from app.core.queue import close_pool, get_pool
-from app.routers import chat, health
+from app.routers import chat, health, metrics
 from app.services.gemini import GeminiError, get_client
 
 configure_logging()
@@ -51,3 +51,4 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(chat.router)
+app.include_router(metrics.router)

@@ -7,6 +7,7 @@ request path is what lets POST /messages return in single-digit milliseconds
 while a 1-3s (occasionally 30s) analysis runs behind it.
 """
 
+import time
 import uuid
 from typing import Any
 
@@ -14,6 +15,7 @@ from sqlalchemy import update
 
 from app.core.db import SessionLocal
 from app.core.logging import configure_logging, log_event, track_analysis
+from app.core.metrics import incr, observe_latency
 from app.core.queue import redis_settings
 from app.models.message import AnalysisStatus, Message
 from app.schemas.analysis import AnalysisResult
@@ -58,10 +60,12 @@ async def analyze_message_job(ctx: dict[str, Any], message_id: str, content: str
         # and the network entirely.
         cached = await get_cached(content, message_id=message_id)
         if cached is not None:
+            await incr("cache_hit")
             track.success(source=cached.source, mood=cached.mood, cache="hit")
             await _write_result(message_id, cached, AnalysisStatus.complete)
             return AnalysisStatus.complete.value
 
+        await incr("cache_miss")
         allowed, circuit_state = await gemini_breaker.allow()
 
         if not allowed:
@@ -70,17 +74,23 @@ async def analyze_message_job(ctx: dict[str, Any], message_id: str, content: str
             # a Redis round trip instead of a 3s timeout.
             degraded_reason = "circuit_open"
         else:
+            started = time.perf_counter()
             try:
                 result = await analyze_message(content)
+                await observe_latency(time.perf_counter() - started)
+                await incr("gemini_call", outcome="success")
                 await gemini_breaker.record_success()
                 track.success(
                     source=result.source, mood=result.mood, circuit_state=circuit_state
                 )
             except GeminiError as exc:
+                await observe_latency(time.perf_counter() - started)
+                await incr("gemini_call", outcome=exc.kind)
                 await gemini_breaker.record_failure(exc.kind)
                 degraded_reason = exc.kind
 
         if result is None:
+            await incr("fallback_triggered", reason=degraded_reason or "unknown")
             # Every failure path lands here, so there is no route to a stuck row.
             # The local analyzer cannot raise and cannot block, which is what makes
             # `complete` reachable even with the dependency completely gone.
