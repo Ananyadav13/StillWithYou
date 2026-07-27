@@ -84,9 +84,18 @@ async def render() -> tuple[str, str]:
             lines.append(f"{name}_total{suffix} {count}")
 
     await counter("gemini_call", "gemini_call", "Gemini calls by outcome.")
-    await counter("cache_hit", "cache_hit", "Analysis cache hits.")
-    await counter("cache_miss", "cache_miss", "Analysis cache misses.")
+    await counter("cache_hit", "cache_hit", "Analysis cache hits by language.")
+    await counter("cache_miss", "cache_miss", "Analysis cache misses by language.")
     await counter("fallback_triggered", "fallback_triggered", "Local fallback invocations by reason.")
+    # Phase 3: the analyzer that is actually serving. `language` is one of
+    # en / hi / hi-en-mixed, so volume and mood distribution can be read per input
+    # mode rather than as one undifferentiated total — which is what would have
+    # hidden the fact that the `angry` weakness is uniform across all three.
+    await counter(
+        "analysis_local",
+        "analysis_local",
+        "Local multilingual analyses by language and mood.",
+    )
 
     # circuit_breaker_state gauge: 0 closed, 1 open, 2 half_open
     state = await redis.get("swy:cb:gemini:state") or "closed"

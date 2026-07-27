@@ -30,6 +30,17 @@ class Settings(BaseSettings):
     # 3s is the hard ceiling past which a call counts as a timeout failure.
     gemini_timeout_seconds: float = 3.0
 
+    # Gemini primary path blocked as of 2026-07-27, see docs/progress.md —
+    # multilingual_local serving as primary until resolved.
+    #
+    # This is the config flip. Gemini remains fully wired as the nominal primary
+    # behind the circuit breaker; setting GEMINI_ENABLED=true restores it as the
+    # first-choice analyzer with no code change. It is off because all three keys
+    # are unusable at project level (two hang past 25s, one returns 403
+    # PERMISSION_DENIED), so every call would burn the 3s timeout before falling
+    # through to the analyzer that was always going to answer.
+    gemini_enabled: bool = False
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property

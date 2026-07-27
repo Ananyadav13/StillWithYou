@@ -4,7 +4,26 @@
 
 :root {
   color-scheme: light;
-  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  /* Devanagari fallbacks are named explicitly, after the Latin faces.
+   *
+   * None of Inter, system-ui, -apple-system, BlinkMacSystemFont or Segoe UI contains
+   * a single Devanagari glyph. Hindi still rendered before this change, but only via
+   * the browser's implicit last-resort fallback — which is not guaranteed, is not the
+   * same face across platforms, and degrades to tofu boxes on a system where no
+   * Devanagari font happens to be installed. Naming the faces makes it a decision
+   * rather than luck.
+   *
+   * All three are OS-bundled: Nirmala UI ships with Windows, Devanagari Sangam MN
+   * with macOS/iOS, Noto Sans Devanagari with Android and most Linux distributions.
+   * Deliberately no webfont — a network fetch to render a message the user already
+   * typed is the wrong trade, and it would be the only external request the app makes.
+   *
+   * Order matters: the Latin faces come first so English and Hinglish (both Latin
+   * script) keep the existing look, and only codepoints those faces lack fall through
+   * to the Devanagari entries.
+   */
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    'Nirmala UI', 'Noto Sans Devanagari', 'Devanagari Sangam MN', sans-serif;
   background-color: #f5f7fb;
   color: #0f172a;
 }

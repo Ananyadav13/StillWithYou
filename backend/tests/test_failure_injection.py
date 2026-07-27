@@ -52,7 +52,20 @@ async def _get(message_id: str) -> Message:
 
 
 @pytest.fixture
-def failing_gemini(monkeypatch):
+def gemini_enabled(monkeypatch):
+    """Force the Gemini branch on.
+
+    Phase 3 turned Gemini off by default (`settings.gemini_enabled`) because the API is
+    blocked externally, so the worker no longer calls it at all in normal operation.
+    These tests exist to prove the circuit breaker still behaves, which requires the
+    branch that the breaker guards to actually run. Enabling it here keeps them testing
+    the breaker rather than testing that the feature flag is off.
+    """
+    monkeypatch.setattr("app.worker.settings.gemini_enabled", True)
+
+
+@pytest.fixture
+def failing_gemini(monkeypatch, gemini_enabled):
     """Make every Gemini call raise, and count the attempts."""
     calls = {"count": 0}
 
@@ -96,7 +109,7 @@ async def test_message_still_analysed_via_fallback_once_open(failing_gemini):
 
     stored = await _get(message_id)
     assert stored.analysis_status is AnalysisStatus.complete
-    assert stored.analysis_source == "local_fallback"
+    assert stored.analysis_source == "multilingual_local"
     assert stored.mood is not None
     assert stored.toxicity_score is not None
     assert 0.0 <= stored.toxicity_score <= 1.0
@@ -121,16 +134,22 @@ async def test_no_message_is_ever_left_pending(failing_gemini):
     stuck = [str(m.id) for m in messages if m.analysis_status is AnalysisStatus.pending]
     assert stuck == [], f"messages left pending: {stuck}"
     assert all(m.analysis_status is AnalysisStatus.complete for m in messages)
-    assert all(m.analysis_source == "local_fallback" for m in messages)
+    assert all(m.analysis_source == "multilingual_local" for m in messages)
 
 
 async def test_persistence_survives_total_analysis_failure(monkeypatch, failing_gemini):
-    """Even if the local fallback itself explodes, the message row is untouched."""
+    """Even if the local analyzer itself explodes, the message row is untouched.
 
-    def _explode(content: str):
-        raise RuntimeError("fallback is broken too")
+    Phase 3 made `analyze_multilingual` the fallback analyzer, so that is what has to
+    be broken to reach the total-failure path. It normally cannot raise — it catches
+    model errors internally and degrades to the Phase 2 lexicon — which is precisely
+    why this test forces the impossible case rather than waiting for it.
+    """
 
-    monkeypatch.setattr("app.worker.analyze_locally", _explode)
+    def _explode(content: str, **kwargs):
+        raise RuntimeError("local analyzer is broken too")
+
+    monkeypatch.setattr("app.worker.analyze_multilingual", _explode)
 
     content = "the message must survive regardless"
     message_id = await _make_message(content)
@@ -143,7 +162,7 @@ async def test_persistence_survives_total_analysis_failure(monkeypatch, failing_
     assert stored.analysis_status is AnalysisStatus.pending
 
 
-async def test_cache_prevents_a_second_call(monkeypatch):
+async def test_cache_prevents_a_second_call(monkeypatch, gemini_enabled):
     """A repeated message must not produce a second Gemini call."""
     calls = {"count": 0}
 
