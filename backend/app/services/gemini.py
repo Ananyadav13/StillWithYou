@@ -11,7 +11,9 @@ onto the four failure modes enumerated in docs/phase2-slo.md and onto the
 """
 
 import asyncio
+import hashlib
 import json
+import time
 from typing import Literal
 
 from google import genai
@@ -19,9 +21,12 @@ from google.genai import errors as genai_errors
 from google.genai import types
 
 from app.core.config import settings
+from app.core.logging import log_event
 from app.schemas.analysis import AnalysisResult
 
-FailureKind = Literal["rate_limit", "server_error", "timeout", "malformed", "error"]
+FailureKind = Literal[
+    "rate_limit", "server_error", "timeout", "malformed", "rejected", "error"
+]
 
 SYSTEM_INSTRUCTION = """You analyse a single chat message sent between two people \
 in a close relationship. Judge only the message given to you.
@@ -47,7 +52,15 @@ _RESPONSE_SCHEMA = {
     "required": ["mood", "toxicity_score", "heat_score"],
 }
 
-_client: genai.Client | None = None
+# One client per configured key, plus the time each key is allowed to be used again.
+_clients: dict[int, genai.Client] = {}
+_cooldown_until: dict[int, float] = {}
+_rotation_cursor = 0
+
+# A key that returned 429 is out of quota; give it a minute before trying again.
+RATE_LIMIT_COOLDOWN_SECONDS = 60.0
+# A key the API rejected outright is misconfigured; sideline it for longer.
+REJECTED_KEY_COOLDOWN_SECONDS = 300.0
 
 
 class GeminiError(RuntimeError):
@@ -58,20 +71,62 @@ class GeminiError(RuntimeError):
         self.kind = kind
 
 
+def key_fingerprint(key: str) -> str:
+    """Stable short id for logs. Never log the key itself."""
+    return hashlib.sha256(key.encode()).hexdigest()[:8]
+
+
+def _client_for(index: int) -> genai.Client:
+    if index not in _clients:
+        _clients[index] = genai.Client(api_key=settings.gemini_api_keys[index])
+    return _clients[index]
+
+
 def get_client() -> genai.Client:
-    """Lazily build the Gemini client so importing this module never needs a key."""
-    global _client
-    if _client is None:
-        if not settings.gemini_api_key:
-            raise GeminiError("GEMINI_API_KEY is not configured", kind="error")
-        _client = genai.Client(api_key=settings.gemini_api_key)
-    return _client
+    """The client for the first configured key. Used to warm connections at startup."""
+    if not settings.gemini_api_keys:
+        raise GeminiError("no Gemini API key is configured", kind="error")
+    return _client_for(0)
+
+
+def _key_order() -> list[int]:
+    """Indices to try, healthy keys first, starting from a rotating offset.
+
+    The rotating start spreads load across the pool instead of hammering key 0
+    until it hits its quota. Cooling keys are still returned, last — a stale
+    cooldown is a worse outcome than one wasted 429.
+    """
+    global _rotation_cursor
+    count = len(settings.gemini_api_keys)
+    if count == 0:
+        return []
+
+    start = _rotation_cursor % count
+    _rotation_cursor += 1
+    order = [(start + offset) % count for offset in range(count)]
+
+    now = time.monotonic()
+    healthy = [i for i in order if _cooldown_until.get(i, 0.0) <= now]
+    cooling = [i for i in order if _cooldown_until.get(i, 0.0) > now]
+    return healthy + cooling
+
+
+def _sideline(index: int, seconds: float, reason: str) -> None:
+    _cooldown_until[index] = time.monotonic() + seconds
+    log_event(
+        "gemini_key_sidelined",
+        level=30,
+        key_index=index,
+        key=key_fingerprint(settings.gemini_api_keys[index]),
+        cooldown_seconds=seconds,
+        reason=reason,
+    )
 
 
 def reset_client() -> None:
-    """Drop the cached client so a changed API key takes effect (used by tests)."""
-    global _client
-    _client = None
+    """Drop cached clients and cooldowns so changed keys take effect (used by tests)."""
+    _clients.clear()
+    _cooldown_until.clear()
 
 
 def _classify(exc: Exception) -> FailureKind:
@@ -79,6 +134,9 @@ def _classify(exc: Exception) -> FailureKind:
     code = getattr(exc, "code", None)
     if code == 429:
         return "rate_limit"
+    if code in (401, 403):
+        # This key is bad or revoked; a different key may well work.
+        return "rejected"
     if isinstance(code, int) and 500 <= code < 600:
         return "server_error"
     if isinstance(exc, genai_errors.ServerError):
@@ -87,22 +145,76 @@ def _classify(exc: Exception) -> FailureKind:
 
 
 async def _call_gemini(content: str) -> str:
-    client = get_client()
-    response = await client.aio.models.generate_content(
-        model=settings.gemini_model,
-        contents=content,
-        config=types.GenerateContentConfig(
-            system_instruction=SYSTEM_INSTRUCTION,
-            response_mime_type="application/json",
-            response_schema=_RESPONSE_SCHEMA,
-            temperature=0.2,
-            # Measured, not guessed: with the model's default thinking level this
-            # prompt ran 6-12.6s and blew the 2s SLO on every call. thinking_level
-            # "low" brought the same five prompts to a 1410ms median, 5/5 under 2s.
-            # Mood/toxicity scoring of one short message needs no deep reasoning.
-            thinking_config=types.ThinkingConfig(thinking_level="low"),
-        ),
-    )
+    """Try each configured key until one answers.
+
+    Rotation only helps the failure modes that are *per-key* — quota exhaustion and
+    a rejected key. A 5xx or a hang is server-side and identical on every key, so
+    those raise immediately rather than burning the rest of the pool (and the
+    remaining deadline) rediscovering the same outage three times.
+    """
+    keys = settings.gemini_api_keys
+    if not keys:
+        raise GeminiError("no Gemini API key is configured", kind="error")
+
+    order = _key_order()
+    last_error: GeminiError | None = None
+
+    for position, index in enumerate(order):
+        try:
+            return await _call_with_key(index, content)
+        except GeminiError as exc:
+            last_error = exc
+
+            if exc.kind == "rate_limit":
+                _sideline(index, RATE_LIMIT_COOLDOWN_SECONDS, "rate_limit")
+            elif exc.kind == "rejected":
+                _sideline(index, REJECTED_KEY_COOLDOWN_SECONDS, "key_rejected")
+            else:
+                # Not a key-specific problem — another key would fail the same way.
+                raise
+
+            if position + 1 < len(order):
+                log_event(
+                    "gemini_key_rotated",
+                    level=30,
+                    from_key=key_fingerprint(keys[index]),
+                    to_key=key_fingerprint(keys[order[position + 1]]),
+                    reason=exc.kind,
+                )
+
+    raise last_error or GeminiError("every configured Gemini key failed", kind="rate_limit")
+
+
+async def _call_with_key(index: int, content: str) -> str:
+    """One attempt with one key. Wraps SDK exceptions so the caller can route on kind."""
+    client = _client_for(index)
+    try:
+        response = await client.aio.models.generate_content(
+            model=settings.gemini_model,
+            contents=content,
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_INSTRUCTION,
+                response_mime_type="application/json",
+                response_schema=_RESPONSE_SCHEMA,
+                temperature=0.2,
+                # Measured, not guessed: with the model's default thinking level this
+                # prompt ran 6-12.6s and blew the 2s SLO on every call. thinking_level
+                # "low" brought the same five prompts to a 1410ms median, 5/5 under 2s.
+                # Mood/toxicity scoring of one short message needs no deep reasoning.
+                thinking_config=types.ThinkingConfig(thinking_level="low"),
+            ),
+        )
+    except asyncio.CancelledError:
+        # The deadline in analyze_message fired. Not this key's fault — let it through
+        # untouched so it is not misread as a per-key failure worth rotating on.
+        raise
+    except Exception as exc:  # noqa: BLE001 - the SDK raises a wide range of types
+        raise GeminiError(
+            f"gemini call failed on key {key_fingerprint(settings.gemini_api_keys[index])}: "
+            f"{type(exc).__name__}: {exc}",
+            kind=_classify(exc),
+        ) from exc
+
     return (response.text or "").strip()
 
 
