@@ -1,19 +1,26 @@
 """The messages table.
 
-Phase 1 note: this model deliberately carries no Gemini-derived columns. A message
-is a complete, valid row the moment the user sends it — analysis is additive and
-arrives later (or never, if Gemini is down). See app/routers/chat.py for the
-commit-then-analyse ordering that makes that guarantee hold.
+Every Gemini-derived column here is nullable, and `analysis_status` starts at
+`pending`. A message row is complete and valid the moment the user sends it —
+analysis is additive and arrives later, or never. See app/routers/chat.py for the
+commit-then-enqueue ordering that makes that guarantee hold.
 """
 
+import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, Text, func
+from sqlalchemy import DateTime, Enum, Float, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
+
+
+class AnalysisStatus(str, enum.Enum):
+    pending = "pending"
+    complete = "complete"
+    failed = "failed"
 
 
 class Message(Base):
@@ -25,3 +32,15 @@ class Message(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+    analysis_status: Mapped[AnalysisStatus] = mapped_column(
+        Enum(AnalysisStatus, name="analysis_status"),
+        nullable=False,
+        default=AnalysisStatus.pending,
+        server_default=AnalysisStatus.pending.value,
+        index=True,
+    )
+    mood: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    toxicity_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    heat_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rewrite_suggestion: Mapped[str | None] = mapped_column(Text, nullable=True)

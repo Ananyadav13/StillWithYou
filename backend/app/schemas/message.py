@@ -3,7 +3,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.schemas.analysis import AnalysisResult
+from app.models.message import AnalysisStatus
 
 
 class PingRequest(BaseModel):
@@ -21,13 +21,32 @@ class MessageCreate(BaseModel):
 
 
 class MessageRead(BaseModel):
+    """What POST /messages returns: the durable row, with no analysis in it.
+
+    `analysis_status` is `pending` on creation. Clients poll
+    GET /messages/{id}/analysis for the result.
+    """
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
     content: str
     sender: str
     created_at: datetime
+    analysis_status: AnalysisStatus
 
-    # Null whenever Gemini was unavailable. The message itself is still persisted
-    # and returned — analysis is additive, never a precondition.
-    analysis: AnalysisResult | None = None
+
+class AnalysisRead(BaseModel):
+    """What GET /messages/{id}/analysis returns.
+
+    Scores are null while status is `pending`, and stay null if it ends `failed`.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    message_id: uuid.UUID
+    analysis_status: AnalysisStatus
+    mood: str | None = None
+    toxicity_score: float | None = None
+    heat_score: float | None = None
+    rewrite_suggestion: str | None = None

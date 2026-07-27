@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.logging import configure_logging, log_event
+from app.core.queue import close_pool, get_pool
 from app.routers import chat, health
 from app.services.gemini import GeminiError, get_client
 
@@ -22,8 +23,19 @@ async def lifespan(app: FastAPI):
     except GeminiError as exc:
         log_event("gemini_client_unavailable", level=30, error=str(exc))
 
+    # Same reasoning as the Gemini client: build the Redis pool now, not inside the
+    # first POST. Creating it lazily put ~300ms of connection setup onto whichever
+    # request happened to be first, which is exactly the request-path latency this
+    # step exists to remove.
+    try:
+        await get_pool()
+        log_event("queue_pool_ready", redis=settings.redis_url)
+    except Exception as exc:  # noqa: BLE001 - the API must serve even if Redis is down
+        log_event("queue_pool_unavailable", level=40, error=f"{type(exc).__name__}: {exc}")
+
     log_event("startup", app=settings.app_name, environment=settings.environment)
     yield
+    await close_pool()
     log_event("shutdown", app=settings.app_name)
 
 

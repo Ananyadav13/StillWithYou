@@ -1,37 +1,114 @@
-import { useCallback, useState } from 'react';
-import { sendPing } from '../api/client';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { createMessage, getAnalysis } from '../api/client';
 import type { Message } from '../types/message';
+
+/** How often to ask the backend whether analysis has landed. */
+const POLL_INTERVAL_MS = 500;
+/** Give up after this long so a stuck job cannot leak a timer forever. */
+const POLL_TIMEOUT_MS = 30_000;
 
 export function useChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
 
-  const sendMessage = useCallback(async (text: string) => {
-    if (!text.trim()) {
-      return;
-    }
+  // Tracked so unmounting cancels every in-flight poll loop.
+  const pollTimers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
 
-    const userMessage: Message = {
-      id: crypto.randomUUID(),
-      content: text,
-      sender: 'user',
-      timestamp: new Date().toISOString(),
+  useEffect(() => {
+    const timers = pollTimers.current;
+    return () => {
+      timers.forEach(clearTimeout);
+      timers.clear();
+    };
+  }, []);
+
+  const pollAnalysis = useCallback((messageId: string) => {
+    const startedAt = Date.now();
+
+    const tick = async () => {
+      try {
+        const analysis = await getAnalysis(messageId);
+
+        if (analysis.analysis_status !== 'pending') {
+          setMessages((prev) =>
+            prev.map((message) =>
+              message.id === messageId
+                ? {
+                    ...message,
+                    analysisStatus: analysis.analysis_status,
+                    mood: analysis.mood,
+                    toxicityScore: analysis.toxicity_score,
+                    heatScore: analysis.heat_score,
+                    rewriteSuggestion: analysis.rewrite_suggestion,
+                  }
+                : message,
+            ),
+          );
+          return;
+        }
+      } catch (error) {
+        console.error('Analysis poll failed:', error);
+        return;
+      }
+
+      if (Date.now() - startedAt < POLL_TIMEOUT_MS) {
+        const timer = setTimeout(tick, POLL_INTERVAL_MS);
+        pollTimers.current.add(timer);
+      }
     };
 
-    setMessages((prev) => [...prev, userMessage]);
-    setInput('');
-    setIsSending(true);
-
-    try {
-      const response = await sendPing(text);
-      console.log('Ping response:', response);
-    } catch (error) {
-      console.error('Ping failed:', error);
-    } finally {
-      setIsSending(false);
-    }
+    void tick();
   }, []);
+
+  const sendMessage = useCallback(
+    async (text: string) => {
+      if (!text.trim()) {
+        return;
+      }
+
+      // Optimistic bubble so the UI never waits on the network. Its temporary id
+      // is swapped for the server's once the row exists, because that id is what
+      // the analysis endpoint is keyed on.
+      const temporaryId = crypto.randomUUID();
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: temporaryId,
+          content: text,
+          sender: 'user',
+          timestamp: new Date().toISOString(),
+          analysisStatus: 'pending',
+        },
+      ]);
+      setInput('');
+      setIsSending(true);
+
+      try {
+        const created = await createMessage(text);
+
+        setMessages((prev) =>
+          prev.map((message) =>
+            message.id === temporaryId
+              ? {
+                  ...message,
+                  id: created.id,
+                  timestamp: created.created_at,
+                  analysisStatus: created.analysis_status,
+                }
+              : message,
+          ),
+        );
+
+        pollAnalysis(created.id);
+      } catch (error) {
+        console.error('Send failed:', error);
+      } finally {
+        setIsSending(false);
+      }
+    },
+    [pollAnalysis],
+  );
 
   return {
     messages,

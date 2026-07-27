@@ -1,13 +1,20 @@
 from datetime import datetime, timezone
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
-from app.core.logging import track_analysis
+from app.core.logging import log_event
+from app.core.queue import get_pool
 from app.models.message import Message
-from app.schemas.message import MessageCreate, MessageRead, PingRequest, PingResponse
-from app.services.gemini import GeminiError, analyze_message
+from app.schemas.message import (
+    AnalysisRead,
+    MessageCreate,
+    MessageRead,
+    PingRequest,
+    PingResponse,
+)
 
 router = APIRouter(tags=["chat"])
 
@@ -22,27 +29,48 @@ async def create_message(
     payload: MessageCreate,
     session: AsyncSession = Depends(get_session),
 ) -> MessageRead:
-    """Persist a message, then try to analyse it.
+    """Persist a message and hand analysis off to the worker.
 
-    The commit happens *before* Gemini is touched, and the analysis call is wrapped
-    so no Gemini failure can propagate. A user's message is never lost because a
-    third-party API was slow, rate-limited or down; the worst outcome is a 201 with
-    `analysis: null`.
+    Gemini is not called here at all. The row is committed first and the job is
+    enqueued second, so the response time is a database write plus a Redis push —
+    not a 1-3s (sometimes 30s) model call. If the enqueue itself fails, the
+    message is still saved and simply stays `pending`; losing an analysis is
+    acceptable, losing a message is not.
     """
     message = Message(content=payload.content, sender=payload.sender)
     session.add(message)
     await session.commit()
     await session.refresh(message)
 
-    analysis = None
-    with track_analysis(message.id) as tracked:
-        try:
-            analysis = await analyze_message(message.content)
-            tracked.success(source=analysis.source, mood=analysis.mood)
-        except GeminiError as exc:
-            # Swallowed on purpose: see the docstring. Structured logging means a
-            # swallowed failure is still a recorded one.
-            tracked.error(failure_kind=exc.kind, error=str(exc)[:200])
-            analysis = None
+    try:
+        pool = await get_pool()
+        await pool.enqueue_job("analyze_message_job", str(message.id), message.content)
+    except Exception as exc:  # noqa: BLE001 - a broker outage must not fail the send
+        log_event(
+            "analysis_enqueue_failed",
+            level=40,
+            message_id=str(message.id),
+            error=f"{type(exc).__name__}: {exc}"[:200],
+        )
 
-    return MessageRead.model_validate(message).model_copy(update={"analysis": analysis})
+    return MessageRead.model_validate(message)
+
+
+@router.get("/messages/{message_id}/analysis", response_model=AnalysisRead)
+async def get_message_analysis(
+    message_id: UUID,
+    session: AsyncSession = Depends(get_session),
+) -> AnalysisRead:
+    """Poll target for the analysis of one message."""
+    message = await session.get(Message, message_id)
+    if message is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="message not found")
+
+    return AnalysisRead(
+        message_id=message.id,
+        analysis_status=message.analysis_status,
+        mood=message.mood,
+        toxicity_score=message.toxicity_score,
+        heat_score=message.heat_score,
+        rewrite_suggestion=message.rewrite_suggestion,
+    )
