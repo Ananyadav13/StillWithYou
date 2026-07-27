@@ -61,6 +61,18 @@ export function useChat() {
     void tick();
   }, []);
 
+  // Analysis triggers only at send time to bound Gemini call volume.
+  //
+  // This is deliberate, not an oversight. `setInput` is the only thing wired to
+  // the textarea's onChange, so keystrokes stay entirely in React state and reach
+  // no network. Debouncing a per-keystroke call would still send one request per
+  // pause; sending only on submit sends exactly one request per message, which is
+  // the smallest number that can possibly work.
+  //
+  // The saving is not marginal. A 200-character message typed at a natural pace
+  // is ~200 keystrokes and, with a 400ms debounce, roughly 15-30 requests. Here it
+  // is 1 - a 95%+ reduction in calls against an API that has already shown us
+  // quota exhaustion and multi-second tail latency.
   const sendMessage = useCallback(
     async (text: string) => {
       if (!text.trim()) {
