@@ -1,0 +1,55 @@
+{
+  "_comment": [
+    "SOURCE OF TRUTH for the StillWithYou extension's WhatsApp Web selectors.",
+    "",
+    "This file is fetched at runtime from raw.githubusercontent.com. Editing it and",
+    "committing is how a WhatsApp DOM change gets fixed - no code edit, no extension",
+    "reload, no re-test. Live in roughly 5 minutes (GitHub's raw CDN cache).",
+    "",
+    "The copy baked into extension/selectors.js is a FROZEN SNAPSHOT of this file and",
+    "is a last-resort fallback only. Do not maintain it by hand: change this file, then",
+    "re-sync the snapshot. Rationale and threat model: docs/phase5-remote-config.md.",
+    "",
+    "Each target lists selectors in priority order, most specific first. The specific",
+    "ones key on attribute values WhatsApp owns and rotates; the last rung in each",
+    "chain is a structural/ARIA property that should only change in a real redesign.",
+    "A partial break therefore degrades to a broader match instead of to nothing.",
+    "",
+    "sendButton is a HEALTH CANARY and is never bound to. Adding a selector here does",
+    "not and must not make the extension interact with WhatsApp's send."
+  ],
+
+  "version": 1,
+  "updated": "2026-07-28T00:00:00Z",
+  "note": "Initial externalisation. Selectors unchanged from the frozen snapshot.",
+
+  "targets": {
+    "composeBox": {
+      "critical": true,
+      "description": "the message compose box",
+      "selectors": [
+        "footer div[contenteditable=\"true\"][data-tab=\"10\"]",
+        "#main footer div[contenteditable=\"true\"]",
+        "footer div[role=\"textbox\"][contenteditable=\"true\"]",
+        "div[role=\"textbox\"][contenteditable=\"true\"]"
+      ]
+    },
+
+    "sendButton": {
+      "critical": false,
+      "description": "the send button (health canary only - never bound)",
+      "selectors": [
+        "button[aria-label=\"Send\"]",
+        "footer button[data-tab=\"11\"]",
+        "span[data-icon=\"send\"]",
+        "footer button[aria-label]"
+      ]
+    }
+  },
+
+  "conversationOpen": [
+    "#main",
+    "div[role=\"application\"] footer",
+    "footer div[contenteditable=\"true\"]"
+  ]
+}
