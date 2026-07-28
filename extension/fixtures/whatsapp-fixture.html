@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>WhatsApp Web DOM fixture — StillWithYou Phase 5</title>
+    <!--
+      A local replica of the parts of WhatsApp Web's DOM that this extension touches.
+
+      WHAT THIS IS FOR, AND WHAT IT IS NOT EVIDENCE OF
+      ------------------------------------------------
+      Steps 1, 3 and 5 of the phase brief ask for evidence from the real site, and that
+      evidence has to be captured in a logged-in browser by a human. This fixture does
+      not replace it and must not be presented as if it did.
+
+      What it does do is let the extension's *logic* be verified automatically and
+      repeatedly: that the selector chain resolves and degrades correctly, that the
+      debounce fires once per pause rather than once per keystroke, that a failed
+      backend produces no visible error, that the 3s deadline actually aborts. Those are
+      properties of the extension's own code, and testing them against a real WhatsApp
+      session would be slower, unrepeatable, and no more truthful.
+
+      The structure below reproduces the attributes selectors.js keys on, as observed at
+      the time of writing: a contenteditable div with role="textbox" and data-tab="10"
+      inside a footer within #main, and a send button carrying aria-label="Send". It is
+      deliberately NOT a visual copy — matching WhatsApp's appearance would add nothing
+      and would invite the fixture to be mistaken for a screenshot of the real thing.
+
+      Because the fixture is a copy of a moving target, passing against it proves the
+      extension works against the DOM AS RECORDED HERE. If WhatsApp changes, this file
+      goes stale in exactly the same way selectors.js does — which is the point of the
+      whole phase, and is why the health check exists rather than a test.
+    -->
+    <style>
+      body { font: 14px system-ui, sans-serif; margin: 0; height: 100vh; display: flex; flex-direction: column; background: #eae6df; }
+      #main { flex: 1; display: flex; flex-direction: column; }
+      .pane { flex: 1; padding: 16px; color: #667781; }
+      footer { background: #f0f2f5; padding: 10px 16px; display: flex; gap: 8px; align-items: flex-end; }
+      .box { flex: 1; min-height: 40px; padding: 9px 12px; background: #fff; border-radius: 8px; outline: none; }
+      button { border: 0; background: transparent; cursor: pointer; padding: 8px; }
+    </style>
+  </head>
+  <body>
+    <div id="main">
+      <div class="pane">
+        Fixture conversation pane. No message history is rendered here, deliberately —
+        the extension has no business reading a transcript, so the fixture gives it
+        nothing to read.
+      </div>
+
+      <footer>
+        <!-- The compose box. Attributes mirror the ones selectors.js keys on. -->
+        <div
+          id="fixture-compose"
+          contenteditable="true"
+          role="textbox"
+          data-tab="10"
+          aria-label="Type a message"
+          class="box"
+        ></div>
+
+        <!-- The send button. Resolved by the health check as a canary and NEVER bound;
+             the fixture gives it a click handler of its own purely so that a test can
+             assert the extension did not interfere with it. -->
+        <button aria-label="Send" data-tab="11" id="fixture-send">
+          <span data-icon="send">➤</span>
+        </button>
+      </footer>
+    </div>
+
+    <script>
+      // Records that WhatsApp's own send handler still ran and was not intercepted.
+      window.__fixtureSends = 0;
+      document.getElementById('fixture-send').addEventListener('click', () => {
+        window.__fixtureSends += 1;
+      });
+      // Records whether anything ever wrote to the compose box. The read-only boundary
+      // says nothing may; this is how a test can prove it rather than assert it.
+      window.__fixtureComposeMutations = 0;
+      new MutationObserver((records) => {
+        window.__fixtureComposeMutations += records.length;
+      }).observe(document.getElementById('fixture-compose'), {
+        childList: true,
+        characterData: true,
+        subtree: true,
+      });
+    </script>
+  </body>
+</html>

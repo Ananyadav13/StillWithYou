@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "StillWithYou — WhatsApp Web (proof of concept)",
+  "version": "0.1.0",
+  "description": "Reads the WhatsApp Web compose box and shows a nudge when a message reads as heated. Local unpacked proof of concept — not published, not distributed.",
+
+  "permissions": ["storage"],
+
+  "host_permissions": ["http://127.0.0.1:8000/*"],
+
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["https://web.whatsapp.com/*"],
+      "js": [
+        "config.js",
+        "selectors.js",
+        "health_check.js",
+        "banner.js",
+        "content.js"
+      ],
+      "css": ["banner.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

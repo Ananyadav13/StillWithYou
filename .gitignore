@@ -20,3 +20,7 @@ venv/
 # Vite/tsc-generated duplicates of the TS config files
 vite.config.js
 vite.config.d.ts
+
+# Phase 5 extension evidence harness deps
+extension/fixtures/node_modules/
+backend/coldstart-*.log

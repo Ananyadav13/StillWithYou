@@ -1,0 +1,13 @@
+{
+  "name": "stillwithyou-extension-fixtures",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Headless-Chrome evidence harness for the Phase 5 extension. Self-contained so it does not add a dependency to the frontend app, which ships nothing from here.",
+  "scripts": {
+    "evidence": "node run-evidence.mjs"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^23.11.1"
+  }
+}
