@@ -825,3 +825,170 @@ failure masks the rest, and naming the broken capability is the whole point.
 Floors, reasoning, and the injected-regression proof are in
 [Against Step 10's bars](#against-step-10s-bars--per-category-floors) above. `angry`
 carries **zero margin by design**; any drop there blocks a merge.
+
+---
+
+## Step 12 — apologetic text read as negative (2026-07-29)
+
+A second known limitation, found the same way the first one's consequences were: by
+watching the live product rather than by re-reading a results table.
+
+### How it surfaced
+
+The main app's nudge banner rendered **"Reads as angry · heat 0.60"** underneath the
+message *"i really apologize"*. The first question was whether the banner was stale —
+a wiring bug of the same class as the `pollAnalysis` defect Phase 4 found — so that was
+checked before anything else. It is not. Instrumenting `NudgeBanner` to log
+`displayed_message_id` against `latest_message_id` on every render, and replaying the
+exact seven-message sequence through the real UI against the real backend, gives
+`is_stale: false` on all seven sends. The banner faithfully displays the newest
+message's own analysis. The model genuinely scores that apology as `angry`.
+
+Two of the three repair messages in that sequence misfire:
+
+| message | mood | heat | banner |
+|---|---|---|---|
+| baby, are you fine? | neutral | 0.09 | — |
+| did you eat? | neutral | 0.08 | — |
+| i had a few drinks yesterday, so i might have written some harsh messages | frustrated | 0.41 | shown |
+| i really apologize | **angry** | **0.60** | shown |
+
+### Pre-registration — written before the expanded corpus was run
+
+Same rule as Step 5: the prediction and the pass criterion are committed here *before*
+the measurement, so the write-up cannot be reverse-engineered from the result.
+
+**Six new fixtures**, labelled by reading each message before any model touched them:
+`en-16` (`calm`, the exact reported message), `en-17` (`neutral` — an explanation, not
+an apology), `en-18` (`calm`), `hi-16` (`calm`), `hinglish-16` (`calm`),
+`hinglish-17` (`calm`). Corpus goes 45 → 51.
+
+**Predicted result: these will largely fail**, and the failure will not be uniform.
+
+**Mechanism hypothesised in advance:** `_WARM_EN` in `multilingual_local.py` contains
+`sorry` but not `apologize`, `apologies`, or `my fault`. The warm branch applies
+`heat -= 0.15` and `toxicity -= 0.15`; an apology phrased without the word "sorry" gets
+no such discount. Underneath, a polarity model reads apologetic and self-reproaching
+text as negative, because in its training distribution apologies co-occur with the
+negative events that caused them. `heat = p_neg * 0.65` then lands a bare apology near
+0.60 with `p_neg ≈ 0.92`, and `_mood` promotes anything with `p_neg >= 0.80` straight
+to `angry`.
+
+**The discriminating prediction:** fixtures carrying a warm-lexicon term
+(`hinglish-17`, "sorry yaar") should pass, while those phrased without one (`en-16`,
+`en-18`, `hi-16`, `hinglish-16`) should fail. If that split holds, the finding is a
+lexicon-coverage gap sitting on top of a model bias, not one thing.
+
+**What will NOT be done about it, decided in advance:** no threshold re-tuning, no
+word added to `_WARM_EN`, no model swap. Adding "apologize" to the warm list would be
+tuning against the very fixtures written to test it — the exact contamination Step 4
+exists to have found once already. The finding gets documented and the floors
+re-baselined on measurement; the fix, if any, is a later phase's decision.
+
+### Result: 0 of 6. The prediction was right; the mechanism was half wrong.
+
+```
+id           expected  got         heat  tox   p_neg  warm-term?
+en-16        calm      angry       0.60  0.64  0.92   no          FAIL
+             i really apologize
+en-17        neutral   frustrated  0.41  0.45  0.64   no          FAIL
+             i had a few drinks yesterday, so i might have written some harsh messages
+en-18        calm      angry       0.53  0.57  0.82   no          FAIL
+             that was my fault yesterday and i should not have said it
+hi-16        calm      angry       0.60  0.65  0.93   no          FAIL
+             मुझे सच में खेद है, कल मैंने गलत कहा था
+hinglish-16  calm      frustrated  0.31  0.33  0.47   no          FAIL
+             kal ke liye sach me apologize karta hu, meri galti thi
+hinglish-17  calm      frustrated  0.19  0.21  0.52   YES         FAIL
+             sorry yaar, kal main galat tha
+```
+
+**The discriminating prediction failed.** `hinglish-17` carries `sorry yaar` from the
+warm lexicon and was predicted to pass. It did not — it is still labelled `frustrated`.
+
+But the warm lexicon *did* do its job, and looking only at the mood label hides that.
+Heat fell from ~0.60 on the unmarked apologies to **0.19**, and toxicity to 0.21. The
+discount applied exactly as designed. What defeated it is `_mood()`: when the model's top
+class is `negative`, the function returns `frustrated` **whatever the heat and toxicity
+are**. Heat is never consulted on that branch. So a warm term can make a message quiet
+without making it non-negative, and the label cannot reflect that.
+
+That distinction matters more than the label, because **the product reads heat, not
+mood**, for deciding whether to interrupt:
+
+| | mood correct | heat ≥ 0.35 → banner wrongly shown |
+|---|---|---|
+| en-16 | ✗ | **yes** |
+| en-17 | ✗ | **yes** |
+| en-18 | ✗ | **yes** |
+| hi-16 | ✗ | **yes** |
+| hinglish-16 | ✗ | no (0.31) |
+| hinglish-17 | ✗ | no (0.19) |
+
+So 0/6 on the label, but **4/6 on the thing the user actually sees**. The two
+lexicon-adjacent cases are wrong in the results table and harmless in the product.
+
+### This is a distinct failure mode from the documented one
+
+`angry 6/15` is **under**-reacting to cold hostility: the model cannot see contempt
+expressed without negative words. This is the mirror image — **over**-reacting to
+apology: the model reads self-reproach as hostility because, in its training
+distribution, apologies co-occur with the events that caused them. `p_neg` of 0.92 on
+*"i really apologize"* is not a near-miss; the model is confident and wrong.
+
+They are opposite errors and they are not fixed by the same thing. Loosening thresholds
+to catch cold anger would fire on more apologies; tightening to spare apologies would
+lose more anger.
+
+**This one is worse for the product**, which is the uncomfortable part. A missed angry
+message leaves the user exactly where they would be without StillWithYou installed. A
+false nudge on an apology **interrupts a repair attempt** — it tells someone that
+climbing down reads as an attack, at the moment they are trying to de-escalate. That is
+the product actively working against its own stated purpose, not merely failing to help.
+
+### Effect on the measured baseline
+
+| category | before (45) | after (51) | floor | moved? |
+|---|---|---|---|---|
+| calm | 8/9 | 8/14 | 7 | no |
+| neutral | 9/9 | 9/10 | 8 | no |
+| frustrated | 9/12 | 9/12 | 8 | no |
+| angry | 6/15 | 6/15 | 6 | no |
+| **overall** | **32/45 (71.1%)** | **32/51 (62.7%)** | 30 | no |
+
+**No floor value changed, and that is not a coincidence.** The floors are counts of
+correct answers; the six new fixtures contributed zero correct, so every count is
+identical and only the denominators grew. The original 45 re-run byte-identically at
+32/45 — the analyzer did not regress. **The corpus stopped concealing a weakness that
+was always there.** Headline accuracy is now reported as **62.7%**, down from 71.1%, for
+the same reason the earlier 83% became 71%: the honest number is the one after removing
+whatever was flattering it.
+
+`LANGUAGE_BAR` was re-baselined 39 → 44 to hold the same 87% against 51 fixtures.
+
+### The 0.35 nudge threshold no longer has a clean record
+
+`frontend/src/config/nudge.ts` chose 0.35 partly because **no** calm or neutral fixture
+in the 45-message corpus reached it — 0/18 wrong fires at every threshold from 0.23 to
+0.50. On 51 fixtures that becomes **4/24**. The caveat written beside that number said
+the clean column was "partly a property of a corpus whose calm messages are
+unambiguously calm" and that "real typing will not be that tidy." That caveat was
+correct, and this is what it looks like when it comes true.
+
+**The threshold is deliberately not re-tuned.** Raising it above 0.60 to clear the
+apologies would take the banner from firing on 15 of 27 heated messages to 7, gutting
+the feature to patch a symptom. The cause is the analyzer's reading of apology, not the
+cutoff.
+
+### What was deliberately not done
+
+No word added to `_WARM_EN`. No threshold moved. No model swapped. `multilingual_local.py`
+is untouched. Adding `apologize` to the warm lexicon would score better on exactly the
+six fixtures written to expose the problem — the precise contamination Step 4 already
+caught once, where four `angry` fixtures were graded by the author's own lexicon rather
+than by the model. A fix that is validated only against the test written to motivate it
+is not a fix, it is a fit.
+
+The plausible real fix is a model that represents repair and self-blame as distinct from
+hostility, which is the same conclusion Step 5 reached from the opposite direction. That
+is a phase, not a patch.

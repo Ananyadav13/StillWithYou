@@ -1,8 +1,17 @@
 {
   "_about": {
     "purpose": "Hand-written evaluation corpus for Phase 3 (English / Hindi / Hinglish). Not generated — each message was written deliberately and each expected_mood was assigned by reading the message, before any model was run against it.",
-    "mood_labels": ["calm", "neutral", "frustrated", "angry"],
-    "language_tags": ["en", "hi", "hi-en-mixed"],
+    "mood_labels": [
+      "calm",
+      "neutral",
+      "frustrated",
+      "angry"
+    ],
+    "language_tags": [
+      "en",
+      "hi",
+      "hi-en-mixed"
+    ],
     "relationship_note": "StillWithYou mediates communication between any two people, not couples. Writing everything as partner-to-partner would bake in an assumed baseline of intimacy and empathy that most real conversations do not have. So these 30 span friends, roommates, siblings, classmates, colleagues and family — and the `context` field on each entry records which, so a later reader can check the spread rather than trust it.",
     "distinctness_note": "All 30 messages are different. An earlier draft of this file was 10 messages rendered in three languages; that measures translation consistency, not per-language accuracy, and it lets one badly-chosen message skew all three categories at once.",
     "register_note": "The Hinglish entries use the compressed spellings people actually type — nhi, h, rhi, mai, gyi, rha, kr, bhut — not textbook transliteration. Clean Hinglish would flatter the Step 3 detector against input it will never see.",
@@ -14,7 +23,8 @@
       "frustrated": "irritation aimed at a situation or a repeated lapse. Complains about behaviour or an event.",
       "angry": "contempt or a verdict on the person — insults, character judgements, stated dislike, or cold withdrawal from the relationship."
     },
-    "count": 45
+    "count": 45,
+    "apology_addendum": "Six fixtures (en-16..18, hi-16, hinglish-16..17) were added on 2026-07-29 after a live run scored 'i really apologize' as angry/heat 0.60 in the main app. Labels were assigned by reading each message BEFORE any model was run against them, same rule as the original 45. They probe a specific hypothesis: apologetic/self-reproaching text read as negative. Four carry no term from the analyzer's warm lexicon (en-16, en-17, en-18, hi-16, hinglish-16) and one does ('sorry yaar' in hinglish-17), so the lexicon's contribution can be separated from the model's."
   },
   "samples": [
     {
@@ -122,7 +132,6 @@
       "expected_mood": "angry",
       "context": "sibling, withdrawal"
     },
-
     {
       "id": "hi-01",
       "text": "जन्मदिन मुबारक हो! इस साल तुम्हें वो सब मिले जिसके तुम सच में हकदार हो।",
@@ -228,7 +237,6 @@
       "expected_mood": "angry",
       "context": "sibling, withdrawal"
     },
-
     {
       "id": "hinglish-01",
       "text": "Thak gyi hogi tu, aaj kuch mat kar, seedha so ja. Baaki kal dekh lenge.",
@@ -333,6 +341,48 @@
       "language": "hi-en-mixed",
       "expected_mood": "angry",
       "context": "sibling, withdrawal"
+    },
+    {
+      "id": "en-16",
+      "text": "i really apologize",
+      "language": "en",
+      "expected_mood": "calm",
+      "context": "friend, apologising the morning after an argument"
+    },
+    {
+      "id": "en-17",
+      "text": "i had a few drinks yesterday, so i might have written some harsh messages",
+      "language": "en",
+      "expected_mood": "neutral",
+      "context": "friend, explaining the night before"
+    },
+    {
+      "id": "en-18",
+      "text": "that was my fault yesterday and i should not have said it",
+      "language": "en",
+      "expected_mood": "calm",
+      "context": "roommate, taking responsibility"
+    },
+    {
+      "id": "hi-16",
+      "text": "मुझे सच में खेद है, कल मैंने गलत कहा था",
+      "language": "hi",
+      "expected_mood": "calm",
+      "context": "sibling, apologising a day later"
+    },
+    {
+      "id": "hinglish-16",
+      "text": "kal ke liye sach me apologize karta hu, meri galti thi",
+      "language": "hi-en-mixed",
+      "expected_mood": "calm",
+      "context": "classmate, owning a mistake"
+    },
+    {
+      "id": "hinglish-17",
+      "text": "sorry yaar, kal main galat tha",
+      "language": "hi-en-mixed",
+      "expected_mood": "calm",
+      "context": "friend, short apology"
     }
   ]
 }

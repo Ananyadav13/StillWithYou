@@ -550,6 +550,72 @@ Re-runnable: `backend/scripts/measure_cold_start.py`. Regression: **33 tests pas
 (29 + 4 for the startup contract), with the Phase 3 floors unmoved at `angry 6/15`,
 `32/45` — the fix touches when the model is built, never how it is used.
 
+### Track A — apologetic text read as hostility (2026-07-29)
+
+Full write-up: Step 12 in [`phase3-results.md`](phase3-results.md).
+
+The main app's nudge banner showed **"Reads as angry · heat 0.60"** under the message
+*"i really apologize"*. **Checked for a wiring bug first** — the banner could plausibly
+have been stale, the same class of defect as Phase 4's `pollAnalysis` hole. It was not:
+instrumenting `NudgeBanner` to log `displayed_message_id` against `latest_message_id` and
+replaying the exact seven-message sequence through the real UI gave `is_stale: false` on
+all seven sends. The banner is faithful; the model is wrong.
+
+Six apologetic fixtures added, labelled before any run, corpus 45 → 51. **Result 0/6**,
+with the prediction pre-registered beforehand. The mechanism guess was half wrong in an
+informative way: the warm lexicon *did* fire on `sorry yaar` and cut heat from ~0.60 to
+0.19, but `_mood()` returns `frustrated` for any negative top class regardless of heat,
+so the label failed while the product behaviour was correct. **0/6 on the mood label,
+but 4/6 on what the user actually sees.**
+
+This is a *distinct* failure mode from the documented `angry 6/15`, and the opposite one:
+under-reacting to cold hostility versus over-reacting to self-blame. It is also worse for
+the product — a missed angry message leaves the user where they'd be without
+StillWithYou, while a false nudge on an apology interrupts a repair attempt.
+
+**No floor value moved**, and that is the honest part: floors are counts of correct
+answers, the six new fixtures contributed zero, and the original 45 re-ran byte-identical
+at 32/45. The analyzer did not regress — the corpus stopped hiding a weakness it always
+had. Headline accuracy is now **32/51 (62.7%)**, down from 71.1%, for the same reason
+83% became 71%. `LANGUAGE_BAR` re-baselined 39 → 44 to hold the same 87%.
+
+**Nothing in `multilingual_local.py` was changed.** No word added to `_WARM_EN`, no
+threshold moved, no model swapped. Adding `apologize` to the warm list would score better
+on exactly the six fixtures written to expose the problem — the contamination Step 4
+already caught once.
+
+**Also recorded: the nudge threshold's clean record is gone.** `nudge.ts` chose 0.35
+partly because 0/18 calm-or-neutral fixtures reached it. On 51 that is **4/24**. The
+caveat written beside the number predicted this; it is left in place rather than
+rewritten, because it was right.
+
+### Runbook — do not start uvicorn and the ARQ worker at the same time
+
+Second-order cost of last session's eager-load fix, found the hard way. Both processes
+now warm their own copy of the 1.1GB model at startup. Started **together** on a machine
+with ~2.3GB free (Chrome, Brave, VS Code, WSL resident), they contend for memory that
+neither can get: Windows pushed 1.4GB into Memory Compression and startup hung past
+**10 minutes** with no error — just `Waiting for application startup`. Started
+**sequentially** the same loads took **7s** and **12.8s**.
+
+The mechanism is worth stating precisely, because "start things one at a time" does not
+convey it: two independent processes each try to fault in a 1.1GB model, and under
+contention the pair is far worse than either alone — not 2× slower but effectively
+stalled, because neither can hold its working set. The eager-load fix was still the right
+trade (a visible one-time boot cost beats a hidden per-request one), but it turned a
+previously-harmless startup order into a blocking one.
+
+```bash
+# correct order
+uvicorn app.main:app --port 8000     # wait for {"preview_model":"ready"}
+arq app.worker.WorkerSettings        # only then
+```
+
+Also: **check for orphaned processes first.** Four stale `python.exe` (two uvicorn on a
+test port, two ARQ workers) from earlier sessions were still resident and competing for
+the same memory. That pre-flight has now caught something real in three separate
+sessions — Phase 3's contaminated runs, Phase 5's cold-start work, and this.
+
 ### Still outstanding
 
 Three DONE WHEN criteria need a logged-in WhatsApp Web session and are **not** claimed as

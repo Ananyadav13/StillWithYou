@@ -615,7 +615,7 @@ Postgres, Redis, uvicorn and the ARQ worker.
 | Language detection, fixtures | 45/45 |
 | Language detection, **held-out real messages** | **6/6** |
 | `langdetect` alone, for comparison | 30/45 (0/15 on Hinglish) |
-| Mood, 4-way exact match | 32/45 (71.1%) |
+| Mood, 4-way exact match | **32/51 (62.7%)** — was 32/45 (71.1%) before the apology fixtures |
 | Mood, lexicon disabled | 30/45 |
 | Polarity (model only) | 41/45 (91.1%) |
 | Cache hit rate, realistic traffic | 37.5% (9 hits / 24 sends, 12 unique) |
@@ -628,7 +628,7 @@ Postgres, Redis, uvicorn and the ARQ worker.
 | Tests | 33 passing, all backend (Phase 4 adds none — see §14; Phase 5 adds 12) |
 | Application code | 3,825 lines (Python + TypeScript) |
 | Documentation | ~21,000 words across 8 documents |
-| Evaluation corpus | 45 hand-written messages |
+| Evaluation corpus | 51 hand-written messages (45 + 6 apology fixtures) |
 | Alembic migrations | 4 |
 
 ---
@@ -817,6 +817,16 @@ and both are now recorded in the gotchas list.
 **`angry` detection is 6/15.** The most product-relevant category is the weakest. Cause
 diagnosed, one bounded fix attempted and failed, documented rather than forced. This is
 the honest headline weakness.
+
+**Apologies are read as hostility — the mirror-image failure, and worse for the product.**
+Found on 2026-07-29 by watching the live app score *"i really apologize"* as `angry`,
+heat 0.60. Six apologetic fixtures were added and scored **0/6**; four of them clear the
+0.35 nudge threshold, so the banner interrupts a repair attempt. Where `angry 6/15` is
+*under*-reacting to cold hostility, this is *over*-reacting to self-blame, and the two
+cannot be fixed by the same adjustment — loosening to catch contempt fires on more
+apologies, tightening to spare apologies loses more anger. A missed angry message leaves
+the user where they'd be without the product; a false nudge on an apology actively works
+against its purpose. Full write-up: Step 12 in [phase3-results.md](phase3-results.md).
 
 **Mood accuracy clears its threshold narrowly.** 32/45 is 71.1% against a 70% bar. It
 should never be reported as "passes" without that qualifier.

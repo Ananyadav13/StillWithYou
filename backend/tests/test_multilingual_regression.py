@@ -21,12 +21,16 @@ Each floor is measured−1, so a single fixture flipping is tolerated as noise w
 genuine regression is caught. `angry` is the exception: it sits at a hard floor with no
 slack, because at 6/15 there is nothing left to give away.
 
-The overall floor is 30/45, chosen deliberately between two useless values:
+The overall floor is 30/51, chosen deliberately between two useless values:
 
   - at 32 (the measured total) the aggregate binds before any category floor can fire,
     which reinstates the zero-margin problem this design exists to remove;
   - at 29 (the exact sum of the four floors) it is arithmetically incapable of failing
     unless a category floor has already failed, so it is pure redundancy.
+
+The same two bounds, and therefore the same value, survive the 45 -> 51 re-baseline:
+the added fixtures scored 0/6, so both the measured total (32) and the sum of the
+floors (29) are unchanged.
 
 At 30 it does a job nothing else here can: catching **broad shallow degradation**, where
 several categories each slip just inside their own floor and no single assertion
@@ -55,14 +59,20 @@ FIXTURES = Path(__file__).parent / "fixtures/multilingual_samples.json"
 
 # Per-category mood floors, baselined against the measured Step 4 run recorded in
 # docs/phase3-results.md. Each is measured−1 except `angry`.
-CALM_FLOOR = 7  # measured 8/9   - floor set at measured-1 to catch regression while tolerating normal fixture-level noise
-NEUTRAL_FLOOR = 8  # measured 9/9   - floor set at measured-1 to catch regression while tolerating normal fixture-level noise
+# Re-baselined 2026-07-29 against the 51-fixture corpus (6 apology fixtures added, see
+# Step 12 in docs/phase3-results.md). The floors are counts of CORRECT answers, and the
+# six new fixtures scored 0/6 - so every count is unchanged and no floor value moved.
+# Only the denominators grew. That is the honest reading of what happened: the analyzer
+# did not get worse, the corpus stopped hiding a weakness it always had.
+CALM_FLOOR = 7  # measured 8/14  - floor set at measured-1 to catch regression while tolerating normal fixture-level noise
+NEUTRAL_FLOOR = 8  # measured 9/10  - floor set at measured-1 to catch regression while tolerating normal fixture-level noise
 FRUSTRATED_FLOOR = 8  # measured 9/12  - floor set at measured-1 to catch regression while tolerating normal fixture-level noise
 ANGRY_FLOOR = 6  # measured 6/15  - floor set at measured exactly; the known-weak category has no room to give
-OVERALL_FLOOR = 30  # measured 32/45 - secondary backstop for multi-category slip, see module docstring
+OVERALL_FLOOR = 30  # measured 32/51 - secondary backstop for multi-category slip, see module docstring
 
 # Language detection keeps its original bar: 87%, restated from Step 10's 26/30.
-LANGUAGE_BAR = 39
+# Re-baselined for 51 fixtures: 87% of 51 = 44.4, so 44.
+LANGUAGE_BAR = 44
 
 
 def load_samples() -> list[dict]:
@@ -73,7 +83,7 @@ def load_samples() -> list[dict]:
 async def pipeline_results() -> list[dict]:
     """Run every fixture through the full pipeline once, and reuse the outcome.
 
-    Session-scoped because loading the model costs ~8s and running 45 inferences
+    Session-scoped because loading the model costs ~8s and running 51 inferences
     another ~2s; doing that per assertion would make the suite unpleasant enough
     that it stops being run.
     """
@@ -166,7 +176,7 @@ async def test_overall_accuracy_meets_floor(pipeline_results) -> None:
     }
     assert total_correct >= OVERALL_FLOOR, (
         f"overall accuracy {total_correct}/{len(pipeline_results)} fell below floor "
-        f"{OVERALL_FLOOR}/45 - broad degradation across multiple categories (each "
+        f"{OVERALL_FLOOR}/{len(pipeline_results)} - broad degradation across multiple categories (each "
         f"passed its own floor individually, but the aggregate caught a shallow "
         f"multi-category slip). Per category: {per_category}"
     )
@@ -187,7 +197,7 @@ async def test_language_detection_meets_bar(pipeline_results) -> None:
 
 async def test_every_fixture_produced_a_result(pipeline_results) -> None:
     """No fixture may silently fail to be analysed — the Phase 2 guarantee."""
-    assert len(pipeline_results) == 45
+    assert len(pipeline_results) == len(load_samples())
     assert all(r["source"] == "multilingual_local" for r in pipeline_results)
     assert all(r["got_mood"] in ("calm", "neutral", "frustrated", "angry") for r in pipeline_results)
 
@@ -199,7 +209,7 @@ async def test_cache_round_trips_every_script(pipeline_results) -> None:
 
 
 async def test_no_cache_key_collisions(pipeline_results) -> None:
-    """45 distinct messages must produce 45 distinct keys, across all three scripts."""
+    """Every distinct message must produce a distinct key, across all three scripts."""
     keys = [r["cache_key"] for r in pipeline_results]
     assert len(set(keys)) == len(keys), "two different fixtures share a cache key"
 
@@ -219,7 +229,7 @@ async def test_per_category_scores_are_reported(pipeline_results, capsys) -> Non
             margin = correct - floor
             print(f"    {mood:<11} {correct:>2}/{total:<3} floor {floor}/{total}  margin {margin:+d}")
         total_correct = sum(r["got_mood"] == r["expected_mood"] for r in pipeline_results)
-        print(f"    {'OVERALL':<11} {total_correct:>2}/45  floor {OVERALL_FLOOR}/45  "
+        print(f"    {'OVERALL':<11} {total_correct:>2}/{len(pipeline_results)}  floor {OVERALL_FLOOR}/{len(pipeline_results)}  "
               f"margin {total_correct - OVERALL_FLOOR:+d}")
         for language in ("en", "hi", "hi-en-mixed"):
             subset = [r for r in pipeline_results if r["expected_language"] == language]

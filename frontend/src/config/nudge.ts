@@ -42,6 +42,20 @@
  *    0.77, which is the known `angry` 6/15 weakness showing up in the heat signal too:
  *    three genuinely angry messages score below every threshold in the table.
  *
+ * UPDATE 2026-07-29 - the caveat below came true, and it is left in place above rather
+ * than rewritten, because the prediction being correct is the point.
+ *
+ * Six apologetic fixtures were added after the live app scored "i really apologize" as
+ * angry / heat 0.60. The zero-wrong-fires column does NOT survive them: on 51 fixtures
+ * it is 4/24, not 0/18. Four apologies clear 0.35 and would wrongly interrupt someone
+ * mid-repair. See Step 12 in docs/phase3-results.md.
+ *
+ * The threshold is deliberately NOT re-tuned. Clearing those four needs a cutoff above
+ * 0.60, which would drop the banner from 15 of 27 heated messages to 7 - gutting the
+ * feature to patch a symptom whose cause is the analyzer's reading of apology, not the
+ * cutoff. Fixing it at the threshold would also be tuning against the very fixtures
+ * written to expose it.
+ *
  * Limits, so this is not read as stronger than it is: validated against the same 45
  * self-authored messages Phase 3 already calls a small corpus, not held out, and the
  * clean zero-wrong-fires column is partly a property of a corpus whose calm messages
