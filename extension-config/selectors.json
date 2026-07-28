@@ -18,11 +18,9 @@
     "sendButton is a HEALTH CANARY and is never bound to. Adding a selector here does",
     "not and must not make the extension interact with WhatsApp's send."
   ],
-
-  "version": 1,
-  "updated": "2026-07-28T00:00:00Z",
-  "note": "Initial externalisation. Selectors unchanged from the frozen snapshot.",
-
+  "version": 2,
+  "updated": "2026-07-29T00:00:00Z",
+  "note": "B2 propagation test: simulates discovering a WhatsApp change and pushing a fixed selector. The extra composeBox rung is real and harmless - a broader ARIA-scoped fallback below the existing chain.",
   "targets": {
     "composeBox": {
       "critical": true,
@@ -31,10 +29,10 @@
         "footer div[contenteditable=\"true\"][data-tab=\"10\"]",
         "#main footer div[contenteditable=\"true\"]",
         "footer div[role=\"textbox\"][contenteditable=\"true\"]",
-        "div[role=\"textbox\"][contenteditable=\"true\"]"
+        "div[role=\"textbox\"][contenteditable=\"true\"]",
+        "div[role=\"textbox\"][aria-label]"
       ]
     },
-
     "sendButton": {
       "critical": false,
       "description": "the send button (health canary only - never bound)",
@@ -46,7 +44,6 @@
       ]
     }
   },
-
   "conversationOpen": [
     "#main",
     "div[role=\"application\"] footer",
