@@ -668,6 +668,36 @@ server, which is what makes a mid-run config edit testable at all. Not yet prove
 `raw.githubusercontent.com` is reachable from the extension, and that GitHub's ~5-minute
 raw CDN cache behaves as documented. Both need the config file pushed first.
 
+### Track B — remote config verified against the live GitHub CDN (2026-07-29)
+
+Evidence: [`phase5-live-cdn-evidence.txt`](phase5-live-cdn-evidence.txt); full write-up in
+[`phase5-remote-config.md`](phase5-remote-config.md).
+
+`extension-config/selectors.json` is now on `main` and served by GitHub. All three live
+checks pass against the real CDN, not a local test server:
+
+- **B1** — the shipping `config_source.js`, unmodified, returns `source: remote` in
+  1134ms cold / 183ms warm, writes the cache, and the extension installs it and reports
+  `health: attached`.
+- **B2** — real propagation measured at **248.4s (4m 08s)** from `git push` to the new
+  version being visible, against a measured `Cache-Control: max-age=300`. The ~5 minute
+  figure was previously an estimate; it is now a measurement.
+- **B3** — a deliberately malformed config on a throwaway branch falls back to
+  **cache**, not `unavailable`, with `reason: invalid:empty_selectors:composeBox`, and the
+  good cache entry survives. The bug the local harness found holds fixed in the wild.
+  `main` never served a broken config; the branch `test/malformed-config` is retained
+  because `run-live-malformed-check.mjs` depends on it as a permanent fixture.
+
+**The best result was unplanned.** During B2's polling, three attempts returned
+`source=cache` — live fetches to GitHub transiently failed and the cache tier engaged on
+its own, in real conditions. The fallback demonstrated by an actual intermittent failure
+rather than an injected one, the same way Phase 2's resilience layer was validated by a
+genuine Gemini outage.
+
+**Still uncovered:** that Chrome grants the fetch under the manifest's
+`host_permissions` with the extension actually loaded. Everything above runs
+`config_source.js` as the service worker would, but outside the extension sandbox.
+
 ### Two real bugs found by the first live WhatsApp Web test
 
 Worth recording because both were invisible to the fixture harness and only appeared

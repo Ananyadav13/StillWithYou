@@ -1,0 +1,45 @@
+========================================================================================
+TRACK B — live GitHub CDN check
+========================================================================================
+  url:    https://raw.githubusercontent.com/Ananyadav13/StillWithYou/main/extension-config/selectors.json
+  run at: 2026-07-28T19:19:43.305Z
+
+  loadConfig() ->
+    source:      remote
+    version:     2
+    reason:      (none)
+    elapsed_ms:  1434
+    cached_at:   (fresh)
+    cache write: yes
+    composeBox:  5 selectors
+
+  [StillWithYou] {"ts":"2026-07-28T19:19:45.350Z","event":"config_source","source":"remote","version":2,"updated":"2026-07-29T00:00:00Z","compose_selectors":5,"elapsed_ms":169}
+
+  extension state after install:
+    selectors.source:  remote
+    selectors.version: 2
+    health:            attached
+    page errors:       none
+
+  PASS: config_source is "remote" against the live CDN
+
+========================================================================================
+TRACK B / STEP B3 — malformed config against the LIVE GitHub CDN
+========================================================================================
+  good: https://raw.githubusercontent.com/Ananyadav13/StillWithYou/main/extension-config/selectors.json
+  bad:  https://raw.githubusercontent.com/Ananyadav13/StillWithYou/test/malformed-config/extension-config/selectors.json
+  run:  2026-07-28T19:19:47.908Z
+
+  test branch serves version 99, composeBox.selectors=[], sendButton=MISSING, conversationOpen=MISSING
+
+  [1] main      -> source=remote version=2 (118ms)
+   PASS  good config fetched from live main  — remote
+   PASS  cache written
+  [2] test/…    -> source=cache version=2 reason=invalid:empty_selectors:composeBox (120ms)
+   PASS  falls back to CACHE, not unavailable  — cache
+   PASS  rejection reason names the validation failure  — invalid:empty_selectors:composeBox
+   PASS  served config is the last-known-good version  — 2 vs cached 2
+   PASS  garbage NOT written to cache  — cache still v2
+   PASS  served config has usable selectors  — 5 selectors
+
+  7/7 checks passed
