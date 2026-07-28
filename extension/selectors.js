@@ -46,46 +46,127 @@ self.SWY = self.SWY || {};
 (function initSelectors() {
   const { config, log } = self.SWY;
 
-  /* The selectors themselves.
+  /* ---------------------------------------------------------------------------
+   * FROZEN SNAPSHOT - the only selector data that ships inside the extension.
    *
-   * Every value below is a point-in-time observation of a third party's private DOM. It
-   * carries no guarantee and is expected to rot. That is the whole premise, not a
-   * disclaimer. */
-  const TARGETS = {
-    composeBox: {
-      /* Critical: without this there is nothing to read and the extension has no
-       * function at all. */
-      critical: true,
-      description: 'the message compose box',
-      selectors: [
-        /* WhatsApp tags the footer compose box with data-tab="10". Most specific, most
-         * likely to be the first thing to change. */
-        'footer div[contenteditable="true"][data-tab="10"]',
-        /* Same element without the tab number, in case only the number rotates. */
-        '#main footer div[contenteditable="true"]',
-        /* Structural: the compose box is the contenteditable textbox inside the
-         * conversation's footer. Survives class and data-attribute churn. */
-        'footer div[role="textbox"][contenteditable="true"]',
-        /* Last rung. Broad enough to match the search box too, which is why it is last
-         * and why `pickComposeBox` below prefers a footer-scoped match. Present only so
-         * a redesign degrades to "slightly wrong element" rather than "nothing". */
-        'div[role="textbox"][contenteditable="true"]',
-      ],
+   * A copy of extension-config/selectors.json taken at build time. LAST RESORT only:
+   * used when the remote config cannot be fetched AND no last-known-good is cached,
+   * i.e. a first-ever run with no network.
+   *
+   * DO NOT MAINTAIN BY HAND. The JSON file is the source of truth - a selector fix goes
+   * there, because that is the copy already-installed extensions pick up without a code
+   * change. Re-sync afterwards: `node fixtures/sync-snapshot.mjs --fix`.
+   * ------------------------------------------------------------------------- */
+  const FROZEN_CONFIG = {
+    "version": 2,
+    "updated": "2026-07-29T00:00:00Z",
+    "targets": {
+      "composeBox": {
+        "critical": true,
+        "description": "the message compose box",
+        "selectors": [
+          "footer div[contenteditable=\"true\"][data-tab=\"10\"]",
+          "#main footer div[contenteditable=\"true\"]",
+          "footer div[role=\"textbox\"][contenteditable=\"true\"]",
+          "div[role=\"textbox\"][contenteditable=\"true\"]",
+          "div[role=\"textbox\"][aria-label]"
+        ]
+      },
+      "sendButton": {
+        "critical": false,
+        "description": "the send button (health canary only - never bound)",
+        "selectors": [
+          "button[aria-label=\"Send\"]",
+          "footer button[data-tab=\"11\"]",
+          "span[data-icon=\"send\"]",
+          "footer button[aria-label]"
+        ]
+      }
     },
-
-    sendButton: {
-      /* Not critical. Losing it degrades the health signal, not the function — and
-       * nothing is ever bound to it, so losing it breaks no behaviour. */
-      critical: false,
-      description: 'the send button (health canary only — never bound)',
-      selectors: [
-        'button[aria-label="Send"]',
-        'footer button[data-tab="11"]',
-        'span[data-icon="send"]',
-        'footer button[aria-label]',
-      ],
-    },
+    "conversationOpen": [
+      "#main",
+      "div[role=\"application\"] footer",
+      "footer div[contenteditable=\"true\"]"
+    ]
   };
+
+  /* The config actually in use. Starts as the snapshot so the extension has working
+   * selectors synchronously, before any network or storage call - the load sequence must
+   * never wait on config. `install()` upgrades it in place when something better lands. */
+  let active = FROZEN_CONFIG;
+  let activeSource = 'hardcoded';
+
+  /* Is a conversation actually open?
+   *
+   * A PRECONDITION, not a canary, and the distinction is why it exists. WhatsApp renders
+   * no compose box until a chat is opened - the landing state is a splash screen.
+   * Without this the extension cannot tell "WhatsApp changed its DOM" (a real outage)
+   * from "the user hasn't opened a chat yet" (normal, every single load), and it reported
+   * the second as the first. An indicator that fires during normal operation trains the
+   * user to dismiss it, so it carries no information on the day the DOM really moves.
+   *
+   * Kept out of TARGETS deliberately: everything there is something whose absence is a
+   * fault; this is something whose absence is just Tuesday. */
+  function isConversationOpen() {
+    for (const selector of active.conversationOpen) {
+      try {
+        if (document.querySelector(selector)) return true;
+      } catch (_) {
+        /* A malformed selector must not decide this either way. */
+      }
+    }
+    return false;
+  }
+
+  /* Selector chains come from `active`. Ordering and meaning are unchanged from the
+   * original hardcoded version: most specific first (attribute values WhatsApp owns and
+   * rotates), structural/ARIA last (should only move in a real redesign), so a partial
+   * break degrades to a broader match rather than to nothing.
+   *
+   * Resolution logic below is untouched. Only where the list comes from changed. */
+  function currentTargets() {
+    return active.targets;
+  }
+
+  /**
+   * Swap in a new config.
+   *
+   * Logs `config_source` on EVERY call, including when nothing changes. That is the
+   * point: a console paste should say immediately whether the extension is running fresh
+   * remote config, a stale cache, or the frozen fallback - without which "the selectors
+   * are wrong" and "the config never loaded" look identical.
+   */
+  function install(cfg, source, meta) {
+    if (cfg) {
+      const t = cfg.targets || {};
+      const usable =
+        t.composeBox &&
+        Array.isArray(t.composeBox.selectors) &&
+        t.composeBox.selectors.length > 0 &&
+        Array.isArray(cfg.conversationOpen) &&
+        cfg.conversationOpen.length > 0;
+
+      if (usable) {
+        active = cfg;
+        activeSource = source;
+        /* A new config invalidates the per-target latches: a target failing under the old
+         * selectors deserves a fresh verdict, and one that was fine may now not be. */
+        Object.keys(lastOutcome).forEach((k) => delete lastOutcome[k]);
+      } else {
+        log('config_rejected_on_apply', { source, ...(meta || {}) }, 'warn');
+      }
+    }
+
+    log('config_source', {
+      source: activeSource,
+      version: active.version,
+      updated: active.updated,
+      compose_selectors: active.targets.composeBox.selectors.length,
+      ...(meta || {}),
+    }, activeSource === 'remote' ? 'info' : 'warn');
+
+    return activeSource;
+  }
 
   /* ---------------------------------------------------------------------------
    * Failure counters.
@@ -95,6 +176,75 @@ self.SWY = self.SWY || {};
    * are fire-and-forget and can never reject into a caller: a storage failure must not
    * be able to break DOM resolution, which is the thing that actually matters.
    * ------------------------------------------------------------------------- */
+
+  /* One entry per target, holding the last outcome logged or counted.
+   *
+   * WhatsApp Web mutates continuously - the observer in content.js fires many times a
+   * second - and the first version re-logged and re-counted on every tick. That produced
+   * dozens of identical warnings per second and turned `selector_failures` into a count
+   * of observer callbacks rather than of outages: a number that looked like evidence and
+   * measured nothing. A failure is now recorded on the TRANSITION into failure, and a
+   * recovery resets the latch. */
+  const lastOutcome = Object.create(null);
+
+  /* ---------------------------------------------------------------------------
+   * Self-tuning selector order.
+   *
+   * `lastSuccess[target]` is the index that last resolved. Held in memory for the hot
+   * path and mirrored to chrome.storage.local so the hint survives a reload - which
+   * matters, because a WhatsApp DOM change persists across reloads and the point is not
+   * to re-pay the failed attempts on every one.
+   * ------------------------------------------------------------------------- */
+  const SUCCESS_STORE_KEY = 'selector_last_success';
+  const lastSuccess = Object.create(null);
+
+  /** Attempt order: remembered index first, then the config's own order. */
+  function attemptOrder(target, length) {
+    const hint = lastSuccess[target];
+    const natural = [];
+    for (let i = 0; i < length; i += 1) natural.push(i);
+    if (typeof hint !== 'number' || hint < 0 || hint >= length || hint === 0) {
+      return natural;
+    }
+    return [hint, ...natural.filter((i) => i !== hint)];
+  }
+
+  function rememberSuccess(target, index) {
+    if (lastSuccess[target] === index) return;
+    lastSuccess[target] = index;
+    if (index > 0) {
+      log('selector_order_learned', {
+        target,
+        willTryFirst: index,
+        note: 'subsequent resolutions try this index before the configured order',
+      });
+    }
+    try {
+      if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) return;
+      chrome.storage.local.set({ [SUCCESS_STORE_KEY]: { ...lastSuccess } }, () => {
+        void (chrome.runtime && chrome.runtime.lastError);
+      });
+    } catch (_) {
+      /* A hint that cannot be persisted is still useful in memory. */
+    }
+  }
+
+  /** Restore hints from a previous session. Best-effort; failure just means no hint. */
+  function restoreSuccessHints() {
+    try {
+      if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) return;
+      chrome.storage.local.get([SUCCESS_STORE_KEY], (stored) => {
+        void (chrome.runtime && chrome.runtime.lastError);
+        const saved = stored && stored[SUCCESS_STORE_KEY];
+        if (!saved || typeof saved !== 'object') return;
+        Object.keys(saved).forEach((t) => {
+          if (typeof saved[t] === 'number') lastSuccess[t] = saved[t];
+        });
+      });
+    } catch (_) {
+      /* See above. */
+    }
+  }
 
   function recordFailure(target) {
     try {
@@ -151,11 +301,15 @@ self.SWY = self.SWY || {};
   /**
    * Resolve a logical target.
    *
+   * @param {string} target
+   * @param {{record?: boolean}} [options] `record: false` resolves silently - for
+   *        pollers and health checks that must not each count as an incident.
    * @returns {{element: Element|null, target: string, matchedSelector: string|null,
    *            matchedIndex: number, attempted: string[]}}
    */
-  function resolve(target) {
-    const spec = TARGETS[target];
+  function resolve(target, options) {
+    const record = !options || options.record !== false;
+    const spec = currentTargets()[target];
     const attempted = [];
 
     if (!spec) {
@@ -163,12 +317,29 @@ self.SWY = self.SWY || {};
       return { element: null, target, matchedSelector: null, matchedIndex: -1, attempted };
     }
 
-    for (let i = 0; i < spec.selectors.length; i += 1) {
+    /* Self-tuning order: try whatever worked last time first.
+     *
+     * After a partial DOM change the config's priority order can be wrong - the first
+     * entry no longer matches and the third does. Without this, every resolution pays
+     * the failed querySelector calls before reaching the one that works, on every
+     * mutation, until someone pushes a reordered config.
+     *
+     * This changes nothing while healthy: the successful selector is already index 0 and
+     * `order` comes back identical. Its value is entirely in the degraded case, which is
+     * the case that lasts longest.
+     *
+     * The remembered index is a HINT, never a filter: the full ordered list is still
+     * tried after it, so a stale hint costs one extra query and can never make a
+     * resolvable target unresolvable. */
+    const order = attemptOrder(target, spec.selectors.length);
+
+    for (const i of order) {
       const selector = spec.selectors[i];
       attempted.push(selector);
       const element = trySelector(selector);
       if (element) {
-        if (i > 0) {
+        rememberSuccess(target, i);
+        if (i > 0 && lastOutcome[target] !== `degraded:${i}`) {
           /* Not a failure, but not nothing either: the preferred selector stopped
            * matching and something further down the chain caught it. This is what DOM
            * drift looks like *before* it becomes an outage, and it is the signal worth
@@ -180,23 +351,29 @@ self.SWY = self.SWY || {};
             skipped: spec.selectors.slice(0, i),
           }, 'warn');
         }
+        /* Recovery clears the latch, so a genuine second outage is counted again. */
+        lastOutcome[target] = i > 0 ? `degraded:${i}` : 'ok';
         return { element, target, matchedSelector: selector, matchedIndex: i, attempted };
       }
     }
 
-    /* Every rung failed. This is the day the file was written for. */
-    log(
-      'selector_failed',
-      {
-        target,
-        description: spec.description,
-        critical: spec.critical,
-        attempted,
-        url: location.href.split('?')[0],
-      },
-      'warn',
-    );
-    recordFailure(target);
+    /* Every rung failed. This is the day the file was written for - but log and count it
+     * ONCE per transition into failure, not once per observer tick. */
+    if (record && lastOutcome[target] !== 'failed') {
+      lastOutcome[target] = 'failed';
+      log(
+        'selector_failed',
+        {
+          target,
+          description: spec.description,
+          critical: spec.critical,
+          attempted,
+          url: location.href.split('?')[0],
+        },
+        'warn',
+      );
+      recordFailure(target);
+    }
 
     return { element: null, target, matchedSelector: null, matchedIndex: -1, attempted };
   }
@@ -210,8 +387,13 @@ self.SWY = self.SWY || {};
    * match that is inside a footer when the chain had to fall that far. Cheap, and it
    * stops the degraded path from quietly analysing the user's search query — which
    * would be both wrong and a privacy problem, since a search box is not a draft. */
-  function composeBox() {
-    const found = resolve('composeBox');
+  function composeBox(options) {
+    /* No chat open means no compose box, and that is not a fault. Resolving anyway would
+     * log and count a failure on every load before the user clicks a conversation - see
+     * `isConversationOpen`. */
+    if (!isConversationOpen()) return null;
+
+    const found = resolve('composeBox', options);
     if (!found.element || found.matchedIndex < 3) return found.element;
     try {
       const scoped = found.element.closest('footer');
@@ -243,12 +425,34 @@ self.SWY = self.SWY || {};
     });
   }
 
+  restoreSuccessHints();
+
   self.SWY.selectors = {
-    TARGETS,
+    /* Live getter, not a snapshot: callers that read this at load time must still see an
+     * upgraded config when one arrives asynchronously. */
+    get TARGETS() {
+      return currentTargets();
+    },
+    get source() {
+      return activeSource;
+    },
+    get version() {
+      return active.version;
+    },
+    FROZEN_CONFIG,
+    install,
+    attemptOrder,
+    lastSuccessHints: () => ({ ...lastSuccess }),
+    /* Test seam: drop the learned hints so the untuned attempt order can be observed.
+     * Not used in normal operation - a stale hint is self-correcting, costing one extra
+     * query and being replaced by the next success. */
+    forgetHints: () => Object.keys(lastSuccess).forEach((k) => delete lastSuccess[k]),
     resolve,
     element,
     composeBox,
+    isConversationOpen,
     readFailures,
-    criticalTargets: () => Object.keys(TARGETS).filter((name) => TARGETS[name].critical),
+    criticalTargets: () =>
+      Object.keys(currentTargets()).filter((name) => currentTargets()[name].critical),
   };
 })();

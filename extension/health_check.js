@@ -39,9 +39,33 @@ self.SWY = self.SWY || {};
     let degraded = false;
 
     try {
+      /* No conversation open -> nothing to attach to, and that is not a fault.
+       *
+       * This case used to be reported as a failure, which meant the indicator appeared
+       * on every single page load before the user clicked a chat. An indicator that
+       * fires during normal operation is worse than none: it teaches the user to
+       * dismiss it, so it carries no information on the day the DOM actually moves. The
+       * state is reported as `idle` and reads as healthy. */
+      if (!self.SWY.selectors.isConversationOpen()) {
+        return {
+          healthy: true,
+          degraded: false,
+          state: 'idle',
+          reason: 'no_conversation_open',
+          checkedAt: new Date().toISOString(),
+          targets,
+        };
+      }
+    } catch (_) {
+      /* Fall through to the full check rather than assuming either answer. */
+    }
+
+    try {
       Object.keys(self.SWY.selectors.TARGETS).forEach((name) => {
         const spec = self.SWY.selectors.TARGETS[name];
-        const found = self.SWY.selectors.resolve(name);
+        /* record: false — the health check is a reporter, not an incident. Counting
+         * every inspection would make `selector_failures` a count of health checks. */
+        const found = self.SWY.selectors.resolve(name, { record: false });
 
         targets[name] = {
           found: Boolean(found.element),
@@ -62,10 +86,23 @@ self.SWY = self.SWY || {};
     } catch (error) {
       /* An exception in the health check must not become the outage it is checking for. */
       log('health_check_threw', { error: String(error && error.message).slice(0, 200) }, 'error');
-      return { healthy: false, degraded: true, checkedAt: new Date().toISOString(), targets };
+      return {
+        healthy: false, degraded: true, state: 'detached',
+        reason: 'health_check_threw', checkedAt: new Date().toISOString(), targets,
+      };
     }
 
-    return { healthy, degraded, checkedAt: new Date().toISOString(), targets };
+    return {
+      healthy,
+      degraded,
+      /* attached  = a chat is open and the compose box was found
+       * detached  = a chat is open and it was NOT found -> the real outage
+       * idle      = no chat open (returned earlier), not a fault */
+      state: healthy ? 'attached' : 'detached',
+      reason: healthy ? null : 'compose_box_not_found',
+      checkedAt: new Date().toISOString(),
+      targets,
+    };
   }
 
   function removeIndicator() {
@@ -112,25 +149,57 @@ self.SWY = self.SWY || {};
     }
   }
 
-  /** Inspect, log, and show or clear the indicator. Returns the report. */
+  /* The health check is called from the MutationObserver, and WhatsApp Web mutates
+   * many times a second. Logging every call flooded the console with dozens of
+   * identical lines and buried anything real. Only state CHANGES are logged. */
+  let lastLoggedState = null;
+
+  /** Inspect, log on change, and show or clear the indicator. Returns the report. */
   function run(reason) {
     const report = inspect();
 
-    log(
-      'health_check',
-      {
-        reason: reason || 'load',
-        healthy: report.healthy,
-        degraded: report.degraded,
-        targets: report.targets,
-      },
-      report.healthy ? 'info' : 'warn',
-    );
+    if (report.state !== lastLoggedState) {
+      log(
+        'health_check',
+        {
+          reason: reason || 'load',
+          state: report.state,
+          from: lastLoggedState,
+          healthy: report.healthy,
+          degraded: report.degraded,
+          detail: report.reason,
+          targets: report.targets,
+        },
+        report.healthy ? 'info' : 'warn',
+      );
+      lastLoggedState = report.state;
+    }
 
-    if (report.healthy) {
-      removeIndicator();
-    } else {
+    /* Only `detached` earns the indicator. `idle` is normal and `attached` is working;
+     * showing it for either is the crying-wolf failure this design exists to avoid. */
+    if (report.state === 'detached') {
+      /* Record the incident HERE, on the transition into detached.
+       *
+       * `inspect()` above resolves with `record: false` because a reporter must not
+       * count itself as an outage. But nothing else records it either: when the state
+       * is detached, `content.js` skips `attach()`, so the recording path in
+       * `resolve()` is never reached and a genuine outage went uncounted and unlogged.
+       * The health check is the right owner anyway — it is the only thing that knows
+       * the difference between "compose box missing because the DOM moved" and
+       * "compose box missing because no chat is open". `resolve`'s own latch keeps this
+       * to one entry per transition. */
+      try {
+        Object.keys(report.targets).forEach((name) => {
+          if (!report.targets[name].found && self.SWY.selectors.TARGETS[name].critical) {
+            self.SWY.selectors.resolve(name, { record: true });
+          }
+        });
+      } catch (_) {
+        /* Recording an incident must never become one. */
+      }
       showIndicator();
+    } else {
+      removeIndicator();
     }
 
     return report;

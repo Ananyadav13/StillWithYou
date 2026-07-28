@@ -32,7 +32,9 @@ exactly like "your message is fine".
 |---|---|
 | `manifest.json` | MV3. `storage` + `host_permissions` for the local API only |
 | `config.js` | Every tunable, each with the reasoning next to it |
-| `selectors.js` | The resilience layer — fallback chains, failure counters, never throws |
+| `selectors.js` | The resilience layer — fallback chains, failure counters, self-tuning order, never throws. Also holds the FROZEN SNAPSHOT (last-resort selectors) |
+| `remote_config.js` / `config_source.js` | Runtime selector config: fetch, validate, cache, 3-tier fallback |
+| `../extension-config/selectors.json` | **Source of truth for selectors.** Edit this to fix a DOM change — no code change needed |
 | `health_check.js` | Are we still attached? Renders the "couldn't attach" indicator |
 | `content.js` | Debounced compose-box read; the only file that touches WhatsApp's DOM |
 | `banner.js` / `banner.css` | The nudge overlay, ported from the main app's `NudgeBanner` |
@@ -59,14 +61,39 @@ cd backend && .venv/Scripts/python.exe -m uvicorn app.main:app --port 8000
 ## Evidence harness
 
 ```bash
-cd fixtures && npm install && node run-evidence.mjs
+cd fixtures && npm install
+node run-evidence.mjs          # 61/61 — behaviour, failure modes, banner
+node run-config-evidence.mjs   # 45/45 — remote config, fallback tiers, recovery
+node sync-snapshot.mjs         # frozen snapshot vs selectors.json
 ```
 
 Runs the real source files against a local replica of the compose-box DOM and a real
-backend: selector degradation, the deliberate-break test, the debounce, the banner
-threshold, overlay non-occlusion, and all three failure modes. 50/50 at time of writing —
-output in [`../docs/phase5-evidence.txt`](../docs/phase5-evidence.txt).
+backend: selector degradation, the deliberate-break test, the "no chat open" case, log
+volume under DOM churn, the debounce, the banner threshold, overlay non-occlusion, and
+all three failure modes. Output in
+[`../docs/phase5-evidence.txt`](../docs/phase5-evidence.txt) and
+[`../docs/phase5-config-evidence.txt`](../docs/phase5-config-evidence.txt).
 
 **It does not prove the selectors match today's WhatsApp.** The fixture is a copy of a
-moving target and goes stale exactly as `selectors.js` does. That is what the health
-check is for.
+moving target and goes stale exactly as the config does. That is what the health check is
+for — and, now, what the remote config is for.
+
+## Fixing a broken selector
+
+A WhatsApp DOM change is a **config push, not a code release**:
+
+```bash
+# 1. find the new selector - paste into the console on web.whatsapp.com WITH A CHAT OPEN
+#    fixtures/diagnose-selectors.js
+# 2. edit extension-config/selectors.json, bump `version`
+# 3. keep the frozen snapshot in step
+cd fixtures && node sync-snapshot.mjs --fix
+# 4. commit. Live in ~5 min (GitHub raw CDN). Every installed extension picks it up
+#    on its next load - no reload, no re-install.
+node run-config-evidence.mjs   # 45/45
+```
+
+`config_source` in the console says which tier is active (`remote` / `cache` /
+`hardcoded`) on every load, so "the selectors are wrong" and "the config never loaded"
+are never confused. Design and threat model:
+[`../docs/phase5-remote-config.md`](../docs/phase5-remote-config.md).

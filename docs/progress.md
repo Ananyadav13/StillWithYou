@@ -616,6 +616,84 @@ test port, two ARQ workers) from earlier sessions were still resident and compet
 the same memory. That pre-flight has now caught something real in three separate
 sessions — Phase 3's contaminated runs, Phase 5's cold-start work, and this.
 
+### Remote selector config — closing the manual-reconfiguration gap
+
+Design and threat model: [`phase5-remote-config.md`](phase5-remote-config.md). Evidence:
+[`phase5-config-evidence.txt`](phase5-config-evidence.txt), **45/45 checks**.
+
+**The gap.** The first real test against `web.whatsapp.com` made the maintenance cost
+concrete. Any selector change meant: edit `selectors.js`, reload the unpacked extension,
+re-run the harness, re-test on the real site — and every user of the extension has to do
+all of it, with the extension dead until they do. For an integration surface that *will*
+break periodically by design, "the fix requires a release" is the actual failure mode,
+not the broken selector.
+
+**What changed.** Selectors now come from `extension-config/selectors.json`, fetched at
+runtime from `raw.githubusercontent.com` (scoped `host_permissions`, repo path only, not
+the whole domain). Three tiers, each verified and each logging `config_source` on every
+load: `remote` → `cache` (last-known-good in `chrome.storage.local`) → `hardcoded`
+(frozen snapshot, the only selector data still shipping in the extension). The fetch is
+never awaited — the extension boots on the snapshot and upgrades in place, because
+putting a third-party HTTP request in WhatsApp Web's page-load critical path is the
+failure this phase exists to avoid.
+
+Also added: self-tuning selector order (the index that last resolved is tried first and
+persisted, so a partial DOM change stops re-paying failed queries on every mutation) and
+`fixtures/sync-snapshot.mjs`, which catches drift between the JSON and the frozen copy.
+
+**Step 5, the payoff.** Every selector replaced with a dead one, then **only the JSON
+edited** — no extension file touched, nothing reloaded:
+
+```text
+BEFORE  config v3: health=detached, indicator=true
+>>> edited selectors.json only: v3 -> v4. No extension code changed. <<<
+AFTER   config v4: health=attached, indicator=false
+Recovery required: 1 JSON edit. Extension code changed: 0 files.
+```
+
+**What this does NOT solve.** It handles selector *strings* changing while the structure
+stays reachable — the common case. It does **not** survive structural change: a closed
+Shadow DOM, a cross-origin iframe, or a canvas-rendered compose box is unreachable by any
+CSS selector, and no config push helps. That still needs code. The health check fires
+correctly in those cases; the extension simply cannot be fixed remotely.
+
+**Verified locally, not against GitHub.** The harness serves the config from a local HTTP
+server, which is what makes a mid-run config edit testable at all. Not yet proven: that
+`raw.githubusercontent.com` is reachable from the extension, and that GitHub's ~5-minute
+raw CDN cache behaves as documented. Both need the config file pushed first.
+
+### Two real bugs found by the first live WhatsApp Web test
+
+Worth recording because both were invisible to the fixture harness and only appeared
+against the real site.
+
+**1. The health check reported normal operation as an outage.** WhatsApp renders no
+compose box until a chat is opened — the landing state is a splash screen — so the
+indicator fired on every load before the user clicked anything. That is the worst
+available failure for a health signal: one that fires during normal operation trains the
+user to dismiss it, so it carries no information on the day the DOM actually moves.
+Fixed with an explicit `conversationOpen` precondition and three states: `idle` (no chat
+open, silent), `attached`, `detached` (the real outage). Regression-tested.
+
+**2. Logging and failure-counting ran on every DOM mutation.** WhatsApp Web mutates
+continuously, so a single outage produced dozens of identical warnings per second and
+turned `selector_failures` into a count of observer ticks rather than of outages — a
+number that looked like evidence and measured nothing. Now latched per transition, with
+the observer coalesced at 250ms. Measured: **60 mutations in 3s → 1 log, 1 counted
+incident** (was dozens). Recording moved into the health check, which is the only place
+that can tell a real outage from an unopened chat.
+
+*Correction to an earlier note in this file:* these were not caused by unbounded polling.
+The timestamps show MutationObserver re-checks during WhatsApp's own SPA re-renders, with
+genuine multi-minute idle gaps between bursts. The defect was duplication *within* those
+bursts, not a runaway timer.
+
+**Also diagnosed:** `analysis_unavailable / reason: endpoint_absent` on the live test was
+a stale uvicorn — a live server answering `/health` in 2ms but 404ing `/analyze-preview`,
+i.e. one started before that route existed. `endpoint_absent` (HTTP 404) versus
+`unreachable` (connection refused) is why that was a two-minute diagnosis rather than a
+guess; the classification in `api.js` earned its keep. Fix is to restart the backend.
+
 ### Still outstanding
 
 Three DONE WHEN criteria need a logged-in WhatsApp Web session and are **not** claimed as

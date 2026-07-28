@@ -11,6 +11,7 @@
  */
 
 import { analyzePreview } from './api.js';
+import { loadConfig } from './config_source.js';
 
 const API_BASE = 'http://127.0.0.1:8000';
 const MARKER = '[StillWithYou:sw]';
@@ -30,6 +31,36 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+  /* Selector config. Answered on every content-script load, and deliberately NOT
+   * awaited by the content script — it has already booted on its frozen snapshot by the
+   * time this resolves, and upgrades in place if something better arrives. See
+   * remote_config.js on why the load sequence must never wait for the network. */
+  if (request && request.type === 'SWY_CONFIG') {
+    loadConfig({ force: Boolean(request.force) })
+      .then((result) => {
+        log(
+          'config_fetch',
+          {
+            source: result.source,
+            version: result.version,
+            reason: result.reason,
+            cached_at: result.cachedAt,
+            elapsed_ms: result.elapsedMs,
+          },
+          result.source === 'remote' ? 'info' : 'warn',
+        );
+        sendResponse(result);
+      })
+      .catch((error) => {
+        /* loadConfig does not reject by contract. If a future edit breaks that, the
+         * content script must still get an answer rather than waiting forever on a
+         * channel that never closes. */
+        log('config_fetch_threw', { error: String((error && error.message) || error).slice(0, 200) }, 'error');
+        sendResponse({ source: 'unavailable', config: null, reason: 'exception' });
+      });
+    return true;
+  }
+
   if (!request || request.type !== 'SWY_ANALYZE') return false;
 
   const content = typeof request.content === 'string' ? request.content : '';

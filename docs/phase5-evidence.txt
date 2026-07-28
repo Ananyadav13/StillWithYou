@@ -1,21 +1,24 @@
 StillWithYou Phase 5 evidence harness
-  backend:  http://127.0.0.1:8010
+  backend:  http://127.0.0.1:8014
   fixture:  extension/fixtures/whatsapp-fixture.html (NOT web.whatsapp.com)
   sources:  extension/*.js, loaded unmodified
-  run at:   2026-07-28T10:31:08.347Z
+  run at:   2026-07-28T19:18:50.153Z
 
 ==========================================================================
 STEP 2a — selector resilience: normal operation
 ==========================================================================
-      [StillWithYou] {"ts":"2026-07-28T10:31:09.013Z","event":"content_script_loaded","version":"0.1.0","href":"file:///C:/Users/yanan/StillWithYou/extension/fixtures/whatsapp-fixture.html","debounce_ms":1500,"heat_threshold":0.35}
-      [StillWithYou] {"ts":"2026-07-28T10:31:09.014Z","event":"health_check","reason":"load","healthy":true,"degraded":false,"targets":{"composeBox":{"found":true,"critical":true,"matchedSelector":"footer div[contenteditable=\"true\"][data-tab=\"10\"]","matchedIndex":0,"attempted":1},"sendButton":{"found":true,"critical":false,"matchedSelector":"button[aria-label=\"Send\"]","matchedIndex":0,"attempted":1}}}
-      [StillWithYou] {"ts":"2026-07-28T10:31:09.015Z","event":"compose_box_attached","tag":"div"}
-      [StillWithYou] {"ts":"2026-07-28T10:31:09.015Z","event":"observer_started"}
+      [StillWithYou] {"ts":"2026-07-28T19:18:50.649Z","event":"content_script_loaded","version":"0.1.0","href":"file:///C:/Users/yanan/StillWithYou/extension/fixtures/whatsapp-fixture.html","debounce_ms":1500,"heat_threshold":0.35}
+      [StillWithYou] {"ts":"2026-07-28T19:18:50.651Z","event":"health_check","reason":"load","state":"attached","from":null,"healthy":true,"degraded":false,"detail":null,"targets":{"composeBox":{"found":true,"critical":true,"matchedSelector":"footer div[contenteditable=\"true\"][data-tab=\"10\"]","matchedIndex":0,"attempted":1},"sendButton":{"found":true,"critical":false,"matchedSelector":"button[aria-label=\"Send\"]","matchedIndex":0,"attempted":1}}}
+      [StillWithYou] {"ts":"2026-07-28T19:18:50.651Z","event":"compose_box_attached","tag":"div"}
+      [StillWithYou] {"ts":"2026-07-28T19:18:50.651Z","event":"observer_started"}
+      [StillWithYou] {"ts":"2026-07-28T19:18:50.653Z","event":"config_source","source":"hardcoded","version":2,"updated":"2026-07-29T00:00:00Z","compose_selectors":5,"reason":"test_default","elapsed_ms":0}
 
    health report: {
      "healthy": true,
      "degraded": false,
-     "checkedAt": "2026-07-28T10:31:09.324Z",
+     "state": "attached",
+     "reason": null,
+     "checkedAt": "2026-07-28T19:18:50.961Z",
      "targets": {
        "composeBox": {
          "found": true,
@@ -42,23 +45,57 @@ STEP 2a — selector resilience: normal operation
    PASS  no uncaught error reached the page
 
 ==========================================================================
+STEP 2a-ii — no conversation open (splash screen, nothing to attach to)
+==========================================================================
+      [StillWithYou] {"ts":"2026-07-28T19:18:51.086Z","event":"content_script_loaded","version":"0.1.0","href":"file:///C:/Users/yanan/StillWithYou/extension/fixtures/whatsapp-fixture.html","debounce_ms":1500,"heat_threshold":0.35}
+      [StillWithYou] {"ts":"2026-07-28T19:18:51.086Z","event":"health_check","reason":"load","state":"idle","from":null,"healthy":true,"degraded":false,"detail":"no_conversation_open","targets":{}}
+      [StillWithYou] {"ts":"2026-07-28T19:18:51.087Z","event":"observer_started"}
+      [StillWithYou] {"ts":"2026-07-28T19:18:51.088Z","event":"config_source","source":"hardcoded","version":2,"updated":"2026-07-29T00:00:00Z","compose_selectors":5,"reason":"test_default","elapsed_ms":0}
+   PASS  state is `idle`, not `detached`  — idle
+   PASS  reported healthy — this is not a fault
+   PASS  NO indicator shown
+   PASS  NO failure counted against the selectors  — {}
+   PASS  no selector_failed logged
+   PASS  no uncaught error
+
+==========================================================================
+STEP 2a-iii — log volume while the DOM churns and the compose box is missing
+==========================================================================
+      [StillWithYou] {"ts":"2026-07-28T19:18:51.603Z","event":"config_source","source":"remote","version":-1,"updated":"2026-07-29T00:00:00Z","compose_selectors":1,"reason":"deliberate_break_test"}
+      [StillWithYou] {"ts":"2026-07-28T19:18:51.618Z","event":"content_script_loaded","version":"0.1.0","href":"file:///C:/Users/yanan/StillWithYou/extension/fixtures/whatsapp-fixture.html","debounce_ms":1500,"heat_threshold":0.35}
+      [StillWithYou] {"ts":"2026-07-28T19:18:51.619Z","event":"health_check","reason":"load","state":"detached","from":null,"healthy":false,"degraded":false,"detail":"compose_box_not_found","targets":{"composeBox":{"found":false,"critical":true,"matchedSelector":null,"matchedIndex":-1,"attempted":1},"sendButton":{"found":true,"critical":false,"matchedSelector":"button[aria-label=\"Send\"]","matchedIndex":0,"attempted":1}}}
+      [StillWithYou] {"ts":"2026-07-28T19:18:51.620Z","event":"selector_failed","target":"composeBox","description":"the message compose box","critical":true,"attempted":["div.swy-deliberately-broken-selector"],"url":"file:///C:/Users/yanan/StillWithYou/extension/fixtures/whatsapp-fixture.html"}
+      [StillWithYou] {"ts":"2026-07-28T19:18:51.620Z","event":"observer_started"}
+      [StillWithYou] {"ts":"2026-07-28T19:18:51.625Z","event":"config_source","source":"remote","version":-1,"updated":"2026-07-29T00:00:00Z","compose_selectors":1,"reason":"test_default","elapsed_ms":0}
+
+   60 DOM mutations over 3s produced:
+     selector_failed logs   1
+     health_check logs      1
+     persisted failure count 1
+   PASS  selector_failed logged once, not per mutation  — 1
+   PASS  health_check logged on state change only  — 1
+   PASS  failure counted as one incident, not 60  — 1
+   PASS  indicator still shown — the real failure is not suppressed
+   PASS  no uncaught error
+
+==========================================================================
 STEP 2b — selector deliberately broken (every composeBox rung → no match)
 ==========================================================================
-      [StillWithYou] {"ts":"2026-07-28T10:31:09.547Z","event":"content_script_loaded","version":"0.1.0","href":"file:///C:/Users/yanan/StillWithYou/extension/fixtures/whatsapp-fixture.html","debounce_ms":1500,"heat_threshold":0.35}
-      [StillWithYou] {"ts":"2026-07-28T10:31:09.548Z","event":"selector_failed","target":"composeBox","description":"the message compose box","critical":true,"attempted":["div.swy-deliberately-broken-selector"],"url":"file:///C:/Users/yanan/StillWithYou/extension/fixtures/whatsapp-fixture.html"}
-      [StillWithYou] {"ts":"2026-07-28T10:31:09.548Z","event":"health_check","reason":"load","healthy":false,"degraded":false,"targets":{"composeBox":{"found":false,"critical":true,"matchedSelector":null,"matchedIndex":-1,"attempted":1},"sendButton":{"found":true,"critical":false,"matchedSelector":"button[aria-label=\"Send\"]","matchedIndex":0,"attempted":1}}}
-      [StillWithYou] {"ts":"2026-07-28T10:31:09.549Z","event":"observer_started"}
-      [StillWithYou] {"ts":"2026-07-28T10:31:09.864Z","event":"selector_failed","target":"composeBox","description":"the message compose box","critical":true,"attempted":["div.swy-deliberately-broken-selector"],"url":"file:///C:/Users/yanan/StillWithYou/extension/fixtures/whatsapp-fixture.html"}
+      [StillWithYou] {"ts":"2026-07-28T19:18:55.240Z","event":"config_source","source":"remote","version":-1,"updated":"2026-07-29T00:00:00Z","compose_selectors":1,"reason":"deliberate_break_test"}
+      [StillWithYou] {"ts":"2026-07-28T19:18:55.254Z","event":"content_script_loaded","version":"0.1.0","href":"file:///C:/Users/yanan/StillWithYou/extension/fixtures/whatsapp-fixture.html","debounce_ms":1500,"heat_threshold":0.35}
+      [StillWithYou] {"ts":"2026-07-28T19:18:55.255Z","event":"health_check","reason":"load","state":"detached","from":null,"healthy":false,"degraded":false,"detail":"compose_box_not_found","targets":{"composeBox":{"found":false,"critical":true,"matchedSelector":null,"matchedIndex":-1,"attempted":1},"sendButton":{"found":true,"critical":false,"matchedSelector":"button[aria-label=\"Send\"]","matchedIndex":0,"attempted":1}}}
+      [StillWithYou] {"ts":"2026-07-28T19:18:55.255Z","event":"selector_failed","target":"composeBox","description":"the message compose box","critical":true,"attempted":["div.swy-deliberately-broken-selector"],"url":"file:///C:/Users/yanan/StillWithYou/extension/fixtures/whatsapp-fixture.html"}
+      [StillWithYou] {"ts":"2026-07-28T19:18:55.255Z","event":"observer_started"}
+      [StillWithYou] {"ts":"2026-07-28T19:18:55.256Z","event":"config_source","source":"remote","version":-1,"updated":"2026-07-29T00:00:00Z","compose_selectors":1,"reason":"test_default","elapsed_ms":0}
    PASS  compose box did NOT resolve
    PASS  send button still resolved — one canary up, one down
    PASS  health is red
    PASS  health indicator IS shown
    PASS  indicator names WhatsApp as the likely cause  — "StillWithYou couldn't attach — WhatsApp may have updated"
-   PASS  failure counter persisted to chrome.storage.local  — {"composeBox":{"count":2,"firstSeen":"2026-07-28T10:31:09.548Z","lastSeen":"2026-07-28T10:31:09.864Z"}}
+   PASS  failure counter persisted to chrome.storage.local  — {"composeBox":{"count":1,"firstSeen":"2026-07-28T19:18:55.255Z","lastSeen":"2026-07-28T19:18:55.255Z"}}
    PASS  structured selector_failed warning logged
    PASS  NO uncaught error reached the page
    PASS  indicator does not occlude WhatsApp's send button
-      [StillWithYou] {"ts":"2026-07-28T10:31:09.897Z","event":"selector_failed","target":"composeBox","description":"the message compose box","critical":true,"attempted":["div.swy-deliberately-broken-selector"],"url":"file:///C:/Users/yanan/StillWithYou/extension/fixtures/whatsapp-fixture.html"}
    PASS  typing into the broken page still does nothing harmful
    PASS  still no uncaught error after typing
    PASS  WhatsApp's own send handler still works
@@ -66,10 +103,11 @@ STEP 2b — selector deliberately broken (every composeBox rung → no match)
 ==========================================================================
 STEP 2c — reverted: normal operation resumes
 ==========================================================================
-      [StillWithYou] {"ts":"2026-07-28T10:31:12.118Z","event":"content_script_loaded","version":"0.1.0","href":"file:///C:/Users/yanan/StillWithYou/extension/fixtures/whatsapp-fixture.html","debounce_ms":1500,"heat_threshold":0.35}
-      [StillWithYou] {"ts":"2026-07-28T10:31:12.119Z","event":"health_check","reason":"load","healthy":true,"degraded":false,"targets":{"composeBox":{"found":true,"critical":true,"matchedSelector":"footer div[contenteditable=\"true\"][data-tab=\"10\"]","matchedIndex":0,"attempted":1},"sendButton":{"found":true,"critical":false,"matchedSelector":"button[aria-label=\"Send\"]","matchedIndex":0,"attempted":1}}}
-      [StillWithYou] {"ts":"2026-07-28T10:31:12.119Z","event":"compose_box_attached","tag":"div"}
-      [StillWithYou] {"ts":"2026-07-28T10:31:12.120Z","event":"observer_started"}
+      [StillWithYou] {"ts":"2026-07-28T19:18:57.769Z","event":"content_script_loaded","version":"0.1.0","href":"file:///C:/Users/yanan/StillWithYou/extension/fixtures/whatsapp-fixture.html","debounce_ms":1500,"heat_threshold":0.35}
+      [StillWithYou] {"ts":"2026-07-28T19:18:57.771Z","event":"health_check","reason":"load","state":"attached","from":null,"healthy":true,"degraded":false,"detail":null,"targets":{"composeBox":{"found":true,"critical":true,"matchedSelector":"footer div[contenteditable=\"true\"][data-tab=\"10\"]","matchedIndex":0,"attempted":1},"sendButton":{"found":true,"critical":false,"matchedSelector":"button[aria-label=\"Send\"]","matchedIndex":0,"attempted":1}}}
+      [StillWithYou] {"ts":"2026-07-28T19:18:57.771Z","event":"compose_box_attached","tag":"div"}
+      [StillWithYou] {"ts":"2026-07-28T19:18:57.771Z","event":"observer_started"}
+      [StillWithYou] {"ts":"2026-07-28T19:18:57.772Z","event":"config_source","source":"hardcoded","version":2,"updated":"2026-07-29T00:00:00Z","compose_selectors":5,"reason":"test_default","elapsed_ms":0}
    PASS  compose box resolves again
    PASS  health green again
    PASS  indicator gone
@@ -78,29 +116,30 @@ STEP 2c — reverted: normal operation resumes
 ==========================================================================
 STEP 3 — debounced compose-box capture (no per-keystroke traffic)
 ==========================================================================
-      [StillWithYou] {"ts":"2026-07-28T10:31:12.577Z","event":"content_script_loaded","version":"0.1.0","href":"file:///C:/Users/yanan/StillWithYou/extension/fixtures/whatsapp-fixture.html","debounce_ms":1500,"heat_threshold":0.35}
-      [StillWithYou] {"ts":"2026-07-28T10:31:12.579Z","event":"health_check","reason":"load","healthy":true,"degraded":false,"targets":{"composeBox":{"found":true,"critical":true,"matchedSelector":"footer div[contenteditable=\"true\"][data-tab=\"10\"]","matchedIndex":0,"attempted":1},"sendButton":{"found":true,"critical":false,"matchedSelector":"button[aria-label=\"Send\"]","matchedIndex":0,"attempted":1}}}
-      [StillWithYou] {"ts":"2026-07-28T10:31:12.579Z","event":"compose_box_attached","tag":"div"}
-      [StillWithYou] {"ts":"2026-07-28T10:31:12.579Z","event":"observer_started"}
+      [StillWithYou] {"ts":"2026-07-28T19:18:58.196Z","event":"content_script_loaded","version":"0.1.0","href":"file:///C:/Users/yanan/StillWithYou/extension/fixtures/whatsapp-fixture.html","debounce_ms":1500,"heat_threshold":0.35}
+      [StillWithYou] {"ts":"2026-07-28T19:18:58.197Z","event":"health_check","reason":"load","state":"attached","from":null,"healthy":true,"degraded":false,"detail":null,"targets":{"composeBox":{"found":true,"critical":true,"matchedSelector":"footer div[contenteditable=\"true\"][data-tab=\"10\"]","matchedIndex":0,"attempted":1},"sendButton":{"found":true,"critical":false,"matchedSelector":"button[aria-label=\"Send\"]","matchedIndex":0,"attempted":1}}}
+      [StillWithYou] {"ts":"2026-07-28T19:18:58.197Z","event":"compose_box_attached","tag":"div"}
+      [StillWithYou] {"ts":"2026-07-28T19:18:58.197Z","event":"observer_started"}
+      [StillWithYou] {"ts":"2026-07-28T19:18:58.198Z","event":"config_source","source":"hardcoded","version":2,"updated":"2026-07-29T00:00:00Z","compose_selectors":5,"reason":"test_default","elapsed_ms":0}
 
    typing: Forget it. I'm done asking you for anything.
-      [StillWithYou] {"ts":"2026-07-28T10:31:16.092Z","event":"draft_captured","chars":44,"text":"Forget it. I'm done asking you for anything."}
-      [StillWithYou] {"ts":"2026-07-28T10:31:16.207Z","event":"analysis_result","mood":"frustrated","heat_score":0.47,"toxicity_score":0.5,"language":"en","source":"multilingual_local","cached":false,"elapsed_ms":111,"over_threshold":true}
-      [StillWithYou] {"ts":"2026-07-28T10:31:16.229Z","event":"banner_shown","tone":"frustrated","mood":"frustrated","heat_score":0.47,"threshold":0.35,"source":"multilingual_local","language":"en"}
+      [StillWithYou] {"ts":"2026-07-28T19:19:01.574Z","event":"draft_captured","chars":44,"text":"Forget it. I'm done asking you for anything."}
+      [StillWithYou] {"ts":"2026-07-28T19:19:01.603Z","event":"analysis_result","mood":"frustrated","heat_score":0.47,"toxicity_score":0.5,"language":"en","source":"multilingual_local","cached":true,"elapsed_ms":25,"over_threshold":true}
+      [StillWithYou] {"ts":"2026-07-28T19:19:01.614Z","event":"banner_shown","tone":"frustrated","mood":"frustrated","heat_score":0.47,"threshold":0.35,"source":"multilingual_local","language":"en"}
 
    typing: Thanks for covering for me yesterday, it really helped.
-      [StillWithYou] {"ts":"2026-07-28T10:31:20.582Z","event":"draft_captured","chars":55,"text":"Thanks for covering for me yesterday, it really helped."}
-      [StillWithYou] {"ts":"2026-07-28T10:31:20.654Z","event":"analysis_result","mood":"calm","heat_score":0,"toxicity_score":0,"language":"en","source":"multilingual_local","cached":false,"elapsed_ms":67,"over_threshold":false}
+      [StillWithYou] {"ts":"2026-07-28T19:19:05.900Z","event":"draft_captured","chars":55,"text":"Thanks for covering for me yesterday, it really helped."}
+      [StillWithYou] {"ts":"2026-07-28T19:19:05.911Z","event":"analysis_result","mood":"calm","heat_score":0,"toxicity_score":0,"language":"en","source":"multilingual_local","cached":true,"elapsed_ms":9,"over_threshold":false}
 
    typing: Tu hamesha yahi karti h, ab bas bhut ho gya
-      [StillWithYou] {"ts":"2026-07-28T10:31:24.590Z","event":"draft_captured","chars":43,"text":"Tu hamesha yahi karti h, ab bas bhut ho gya"}
-      [StillWithYou] {"ts":"2026-07-28T10:31:24.648Z","event":"analysis_result","mood":"frustrated","heat_score":0.4,"toxicity_score":0.27,"language":"hi-en-mixed","source":"multilingual_local","cached":false,"elapsed_ms":55,"over_threshold":true}
-      [StillWithYou] {"ts":"2026-07-28T10:31:24.652Z","event":"banner_shown","tone":"frustrated","mood":"frustrated","heat_score":0.4,"threshold":0.35,"source":"multilingual_local","language":"hi-en-mixed"}
+      [StillWithYou] {"ts":"2026-07-28T19:19:09.714Z","event":"draft_captured","chars":43,"text":"Tu hamesha yahi karti h, ab bas bhut ho gya"}
+      [StillWithYou] {"ts":"2026-07-28T19:19:09.722Z","event":"analysis_result","mood":"frustrated","heat_score":0.4,"toxicity_score":0.27,"language":"hi-en-mixed","source":"multilingual_local","cached":true,"elapsed_ms":5,"over_threshold":true}
+      [StillWithYou] {"ts":"2026-07-28T19:19:09.723Z","event":"banner_shown","tone":"frustrated","mood":"frustrated","heat_score":0.4,"threshold":0.35,"source":"multilingual_local","language":"hi-en-mixed"}
 
    typing: अपनी गलती मान लो बस। सारा इल्ज़ाम मुझ पर डालना बंद करो।
-      [StillWithYou] {"ts":"2026-07-28T10:31:29.078Z","event":"draft_captured","chars":55,"text":"अपनी गलती मान लो बस। सारा इल्ज़ाम मुझ पर डालना बंद करो।"}
-      [StillWithYou] {"ts":"2026-07-28T10:31:29.134Z","event":"analysis_result","mood":"frustrated","heat_score":0.48,"toxicity_score":0.51,"language":"hi","source":"multilingual_local","cached":false,"elapsed_ms":53,"over_threshold":true}
-      [StillWithYou] {"ts":"2026-07-28T10:31:29.136Z","event":"banner_shown","tone":"frustrated","mood":"frustrated","heat_score":0.48,"threshold":0.35,"source":"multilingual_local","language":"hi"}
+      [StillWithYou] {"ts":"2026-07-28T19:19:14.045Z","event":"draft_captured","chars":55,"text":"अपनी गलती मान लो बस। सारा इल्ज़ाम मुझ पर डालना बंद करो।"}
+      [StillWithYou] {"ts":"2026-07-28T19:19:14.053Z","event":"analysis_result","mood":"frustrated","heat_score":0.48,"toxicity_score":0.51,"language":"hi","source":"multilingual_local","cached":true,"elapsed_ms":6,"over_threshold":true}
+      [StillWithYou] {"ts":"2026-07-28T19:19:14.054Z","event":"banner_shown","tone":"frustrated","mood":"frustrated","heat_score":0.48,"threshold":0.35,"source":"multilingual_local","language":"hi"}
 
    keystrokes typed:   197
    draft_captured:     4
@@ -114,25 +153,26 @@ STEP 3 — debounced compose-box capture (no per-keystroke traffic)
 ==========================================================================
 STEP 4/5 — real backend call and banner render
 ==========================================================================
-      [StillWithYou] {"ts":"2026-07-28T10:31:29.920Z","event":"content_script_loaded","version":"0.1.0","href":"file:///C:/Users/yanan/StillWithYou/extension/fixtures/whatsapp-fixture.html","debounce_ms":1500,"heat_threshold":0.35}
-      [StillWithYou] {"ts":"2026-07-28T10:31:29.921Z","event":"health_check","reason":"load","healthy":true,"degraded":false,"targets":{"composeBox":{"found":true,"critical":true,"matchedSelector":"footer div[contenteditable=\"true\"][data-tab=\"10\"]","matchedIndex":0,"attempted":1},"sendButton":{"found":true,"critical":false,"matchedSelector":"button[aria-label=\"Send\"]","matchedIndex":0,"attempted":1}}}
-      [StillWithYou] {"ts":"2026-07-28T10:31:29.921Z","event":"compose_box_attached","tag":"div"}
-      [StillWithYou] {"ts":"2026-07-28T10:31:29.921Z","event":"observer_started"}
-      [StillWithYou] {"ts":"2026-07-28T10:31:32.682Z","event":"draft_captured","chars":52}
-      [StillWithYou] {"ts":"2026-07-28T10:31:32.735Z","event":"analysis_result","mood":"frustrated","heat_score":0.46,"toxicity_score":0.33,"language":"en","source":"multilingual_local","cached":false,"elapsed_ms":50,"over_threshold":true}
-      [StillWithYou] {"ts":"2026-07-28T10:31:32.751Z","event":"banner_shown","tone":"frustrated","mood":"frustrated","heat_score":0.46,"threshold":0.35,"source":"multilingual_local","language":"en"}
+      [StillWithYou] {"ts":"2026-07-28T19:19:14.876Z","event":"content_script_loaded","version":"0.1.0","href":"file:///C:/Users/yanan/StillWithYou/extension/fixtures/whatsapp-fixture.html","debounce_ms":1500,"heat_threshold":0.35}
+      [StillWithYou] {"ts":"2026-07-28T19:19:14.878Z","event":"health_check","reason":"load","state":"attached","from":null,"healthy":true,"degraded":false,"detail":null,"targets":{"composeBox":{"found":true,"critical":true,"matchedSelector":"footer div[contenteditable=\"true\"][data-tab=\"10\"]","matchedIndex":0,"attempted":1},"sendButton":{"found":true,"critical":false,"matchedSelector":"button[aria-label=\"Send\"]","matchedIndex":0,"attempted":1}}}
+      [StillWithYou] {"ts":"2026-07-28T19:19:14.878Z","event":"compose_box_attached","tag":"div"}
+      [StillWithYou] {"ts":"2026-07-28T19:19:14.878Z","event":"observer_started"}
+      [StillWithYou] {"ts":"2026-07-28T19:19:14.880Z","event":"config_source","source":"hardcoded","version":2,"updated":"2026-07-29T00:00:00Z","compose_selectors":5,"reason":"test_default","elapsed_ms":0}
+      [StillWithYou] {"ts":"2026-07-28T19:19:17.468Z","event":"draft_captured","chars":52}
+      [StillWithYou] {"ts":"2026-07-28T19:19:17.479Z","event":"analysis_result","mood":"frustrated","heat_score":0.46,"toxicity_score":0.33,"language":"en","source":"multilingual_local","cached":true,"elapsed_ms":8,"over_threshold":true}
+      [StillWithYou] {"ts":"2026-07-28T19:19:17.491Z","event":"banner_shown","tone":"frustrated","mood":"frustrated","heat_score":0.46,"threshold":0.35,"source":"multilingual_local","language":"en"}
 
    draft:    You never listen to a word I say, every single time.
-   response: {"mood":"frustrated","toxicity_score":0.33,"heat_score":0.46,"rewrite_suggestion":"This reads as a verdict rather than a complaint — 'never' turns one moment into a pattern. Try naming the single thing that happened and how it felt.","source":"multilingual_local","language":"en","cached":false}
+   response: {"mood":"frustrated","toxicity_score":0.33,"heat_score":0.46,"rewrite_suggestion":"This reads as a verdict rather than a complaint — 'never' turns one moment into a pattern. Try naming the single thing that happened and how it felt.","source":"multilingual_local","language":"en","cached":true}
    banner:   WORTH A PAUSE | This reads as a verdict rather than a complaint — 'never' turns one moment into a pattern. Try naming the single thing that happened and how it felt. | Reads as frustrated · heat 0.46 | Dismiss
    PASS  heat 0.46 >= 0.35 → banner shown
    PASS  banner does not occlude WhatsApp's send button
    PASS  banner does not cover the compose box the user is typing in
-      [StillWithYou] {"ts":"2026-07-28T10:31:36.315Z","event":"draft_captured","chars":55}
-      [StillWithYou] {"ts":"2026-07-28T10:31:36.373Z","event":"analysis_result","mood":"calm","heat_score":0,"toxicity_score":0,"language":"en","source":"multilingual_local","cached":false,"elapsed_ms":55,"over_threshold":false}
+      [StillWithYou] {"ts":"2026-07-28T19:19:20.912Z","event":"draft_captured","chars":55}
+      [StillWithYou] {"ts":"2026-07-28T19:19:20.921Z","event":"analysis_result","mood":"calm","heat_score":0,"toxicity_score":0,"language":"en","source":"multilingual_local","cached":true,"elapsed_ms":7,"over_threshold":false}
 
    draft:    Thank you for sorting that out, I really appreciate it.
-   response: {"mood":"calm","toxicity_score":0,"heat_score":0,"rewrite_suggestion":null,"source":"multilingual_local","language":"en","cached":false}
+   response: {"mood":"calm","toxicity_score":0,"heat_score":0,"rewrite_suggestion":null,"source":"multilingual_local","language":"en","cached":true}
    banner:   (none)
    PASS  heat 0 < 0.35 → banner absent
    PASS  backend answered at least one call
@@ -142,12 +182,13 @@ STEP 4/5 — real backend call and banner render
 ==========================================================================
 FAILURE MODE 2 — backend unreachable (nothing listening on the port)
 ==========================================================================
-      [StillWithYou] {"ts":"2026-07-28T10:31:37.361Z","event":"content_script_loaded","version":"0.1.0","href":"file:///C:/Users/yanan/StillWithYou/extension/fixtures/whatsapp-fixture.html","debounce_ms":1500,"heat_threshold":0.35}
-      [StillWithYou] {"ts":"2026-07-28T10:31:37.362Z","event":"health_check","reason":"load","healthy":true,"degraded":false,"targets":{"composeBox":{"found":true,"critical":true,"matchedSelector":"footer div[contenteditable=\"true\"][data-tab=\"10\"]","matchedIndex":0,"attempted":1},"sendButton":{"found":true,"critical":false,"matchedSelector":"button[aria-label=\"Send\"]","matchedIndex":0,"attempted":1}}}
-      [StillWithYou] {"ts":"2026-07-28T10:31:37.362Z","event":"compose_box_attached","tag":"div"}
-      [StillWithYou] {"ts":"2026-07-28T10:31:37.362Z","event":"observer_started"}
-      [StillWithYou] {"ts":"2026-07-28T10:31:39.997Z","event":"draft_captured","chars":44}
-      [StillWithYou] {"ts":"2026-07-28T10:31:40.003Z","event":"analysis_unavailable","reason":"unreachable","elapsed_ms":1,"chars":44}
+      [StillWithYou] {"ts":"2026-07-28T19:19:21.942Z","event":"content_script_loaded","version":"0.1.0","href":"file:///C:/Users/yanan/StillWithYou/extension/fixtures/whatsapp-fixture.html","debounce_ms":1500,"heat_threshold":0.35}
+      [StillWithYou] {"ts":"2026-07-28T19:19:21.944Z","event":"health_check","reason":"load","state":"attached","from":null,"healthy":true,"degraded":false,"detail":null,"targets":{"composeBox":{"found":true,"critical":true,"matchedSelector":"footer div[contenteditable=\"true\"][data-tab=\"10\"]","matchedIndex":0,"attempted":1},"sendButton":{"found":true,"critical":false,"matchedSelector":"button[aria-label=\"Send\"]","matchedIndex":0,"attempted":1}}}
+      [StillWithYou] {"ts":"2026-07-28T19:19:21.944Z","event":"compose_box_attached","tag":"div"}
+      [StillWithYou] {"ts":"2026-07-28T19:19:21.944Z","event":"observer_started"}
+      [StillWithYou] {"ts":"2026-07-28T19:19:21.946Z","event":"config_source","source":"hardcoded","version":2,"updated":"2026-07-29T00:00:00Z","compose_selectors":5,"reason":"test_default","elapsed_ms":0}
+      [StillWithYou] {"ts":"2026-07-28T19:19:24.442Z","event":"draft_captured","chars":44}
+      [StillWithYou] {"ts":"2026-07-28T19:19:24.445Z","event":"analysis_unavailable","reason":"unreachable","elapsed_ms":1,"chars":44}
 
    api.js returned: {"ok":false,"reason":"unreachable","elapsedMs":1}
    PASS  api.js resolved rather than threw
@@ -162,16 +203,17 @@ FAILURE MODE 2 — backend unreachable (nothing listening on the port)
 ==========================================================================
 FAILURE MODE 3 — backend slow (answers after 6s, deadline is 3s)
 ==========================================================================
-      [StillWithYou] {"ts":"2026-07-28T10:31:41.283Z","event":"content_script_loaded","version":"0.1.0","href":"file:///C:/Users/yanan/StillWithYou/extension/fixtures/whatsapp-fixture.html","debounce_ms":1500,"heat_threshold":0.35}
-      [StillWithYou] {"ts":"2026-07-28T10:31:41.285Z","event":"health_check","reason":"load","healthy":true,"degraded":false,"targets":{"composeBox":{"found":true,"critical":true,"matchedSelector":"footer div[contenteditable=\"true\"][data-tab=\"10\"]","matchedIndex":0,"attempted":1},"sendButton":{"found":true,"critical":false,"matchedSelector":"button[aria-label=\"Send\"]","matchedIndex":0,"attempted":1}}}
-      [StillWithYou] {"ts":"2026-07-28T10:31:41.285Z","event":"compose_box_attached","tag":"div"}
-      [StillWithYou] {"ts":"2026-07-28T10:31:41.286Z","event":"observer_started"}
-      [StillWithYou] {"ts":"2026-07-28T10:31:43.915Z","event":"draft_captured","chars":45}
-      [StillWithYou] {"ts":"2026-07-28T10:31:46.927Z","event":"analysis_unavailable","reason":"timeout","elapsed_ms":3009,"chars":45}
+      [StillWithYou] {"ts":"2026-07-28T19:19:25.713Z","event":"content_script_loaded","version":"0.1.0","href":"file:///C:/Users/yanan/StillWithYou/extension/fixtures/whatsapp-fixture.html","debounce_ms":1500,"heat_threshold":0.35}
+      [StillWithYou] {"ts":"2026-07-28T19:19:25.714Z","event":"health_check","reason":"load","state":"attached","from":null,"healthy":true,"degraded":false,"detail":null,"targets":{"composeBox":{"found":true,"critical":true,"matchedSelector":"footer div[contenteditable=\"true\"][data-tab=\"10\"]","matchedIndex":0,"attempted":1},"sendButton":{"found":true,"critical":false,"matchedSelector":"button[aria-label=\"Send\"]","matchedIndex":0,"attempted":1}}}
+      [StillWithYou] {"ts":"2026-07-28T19:19:25.715Z","event":"compose_box_attached","tag":"div"}
+      [StillWithYou] {"ts":"2026-07-28T19:19:25.715Z","event":"observer_started"}
+      [StillWithYou] {"ts":"2026-07-28T19:19:25.716Z","event":"config_source","source":"hardcoded","version":2,"updated":"2026-07-29T00:00:00Z","compose_selectors":5,"reason":"test_default","elapsed_ms":0}
+      [StillWithYou] {"ts":"2026-07-28T19:19:28.245Z","event":"draft_captured","chars":45}
+      [StillWithYou] {"ts":"2026-07-28T19:19:31.254Z","event":"analysis_unavailable","reason":"timeout","elapsed_ms":3006,"chars":45}
 
-   api.js returned: {"ok":false,"reason":"timeout","elapsedMs":3009}
+   api.js returned: {"ok":false,"reason":"timeout","elapsedMs":3006}
    PASS  request aborted rather than hanging  — timeout
-   PASS  aborted at ~3s, not 6s (measured 3009ms)
+   PASS  aborted at ~3s, not 6s (measured 3006ms)
    PASS  NO banner shown
    PASS  nothing user-visible was added to the page
    PASS  the timeout WAS logged
@@ -179,5 +221,5 @@ FAILURE MODE 3 — backend slow (answers after 6s, deadline is 3s)
    PASS  the page stayed responsive while the request hung
 
 ==========================================================================
-SUMMARY — 50/50 checks passed
+SUMMARY — 61/61 checks passed
 ==========================================================================

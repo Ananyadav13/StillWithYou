@@ -1,0 +1,112 @@
+
+==========================================================================
+STEP 2 — validation rejects malformed config before it is cached
+==========================================================================
+   PASS  valid seed config passes  — null
+   PASS  rejects non-object
+   PASS  rejects missing targets
+   PASS  rejects empty selector array
+   PASS  rejects missing conversationOpen — would cause false outage reports
+
+==========================================================================
+STEP 3a — remote: network up, config fetched fresh
+==========================================================================
+      [StillWithYou] {"ts":"2026-07-28T19:19:33.839Z","event":"config_source","source":"remote","version":2,"updated":"2026-07-29T00:00:00Z","compose_selectors":5,"elapsed_ms":17}
+      [StillWithYou] {"ts":"2026-07-28T19:19:33.839Z","event":"config_applied","source":"remote"}
+   PASS  config_source logged `remote`  — remote
+   PASS  extension reports source = remote
+   PASS  compose box still resolves under remote config
+   PASS  config written to chrome.storage.local cache
+   PASS  cache entry carries a timestamp  — 2026-07-28T19:19:33.838Z
+   PASS  no uncaught error
+
+==========================================================================
+STEP 3b — cache: network blocked, last-known-good used
+==========================================================================
+      [StillWithYou] {"ts":"2026-07-28T19:19:34.883Z","event":"config_source","source":"cache","version":2,"updated":"2026-07-29T00:00:00Z","compose_selectors":5,"reason":"error:fetch failed","cached_at":"2026-07-28T19:19:33.838Z","elapsed_ms":6}
+      [StillWithYou] {"ts":"2026-07-28T19:19:34.883Z","event":"config_applied","source":"cache"}
+   PASS  config_source logged `cache`  — cache
+   PASS  extension reports source = cache
+   PASS  compose box still resolves from cached config
+   PASS  no health indicator — a config outage is not a DOM outage
+   PASS  no uncaught error
+
+==========================================================================
+STEP 3c — hardcoded: network blocked AND cache cleared
+==========================================================================
+      [StillWithYou] {"ts":"2026-07-28T19:19:35.916Z","event":"config_source","source":"hardcoded","version":2,"updated":"2026-07-29T00:00:00Z","compose_selectors":5,"reason":"error:fetch failed","elapsed_ms":3}
+   PASS  config_source logged `hardcoded`  — hardcoded
+   PASS  extension reports source = hardcoded
+   PASS  compose box STILL resolves from the frozen snapshot
+   PASS  no uncaught error
+
+==========================================================================
+STEP 3d — a reachable but INVALID config must not poison the cache
+==========================================================================
+      [StillWithYou] {"ts":"2026-07-28T19:19:36.941Z","event":"config_source","source":"remote","version":2,"updated":"2026-07-29T00:00:00Z","compose_selectors":5,"elapsed_ms":2}
+      [StillWithYou] {"ts":"2026-07-28T19:19:36.942Z","event":"config_applied","source":"remote"}
+      [StillWithYou] {"ts":"2026-07-28T19:19:37.766Z","event":"config_source","source":"cache","version":2,"updated":"2026-07-29T00:00:00Z","compose_selectors":5,"reason":"invalid:empty_selectors:composeBox","cached_at":"2026-07-28T19:19:36.940Z","elapsed_ms":2}
+      [StillWithYou] {"ts":"2026-07-28T19:19:37.766Z","event":"config_applied","source":"cache"}
+   PASS  falls back to cache, not to the garbage  — cache
+   PASS  good cache entry survived the bad push
+   PASS  no uncaught error
+
+==========================================================================
+STEP 4 — self-tuning selector order
+==========================================================================
+      [StillWithYou] {"ts":"2026-07-28T19:19:38.784Z","event":"config_source","source":"remote","version":2,"updated":"2026-07-29T00:00:00Z","compose_selectors":5,"elapsed_ms":1}
+      [StillWithYou] {"ts":"2026-07-28T19:19:38.784Z","event":"config_applied","source":"remote"}
+      [StillWithYou] {"ts":"2026-07-28T19:19:38.785Z","event":"selector_order_learned","target":"composeBox","willTryFirst":1,"note":"subsequent resolutions try this index before the configured order"}
+      [StillWithYou] {"ts":"2026-07-28T19:19:39.697Z","event":"selector_order_learned","target":"composeBox","willTryFirst":1,"note":"subsequent resolutions try this index before the configured order"}
+
+   1st resolution (hint cleared) attempted 2: matched index 1
+   learned hint: {"composeBox":1}
+   next attempt order: [1,0,2,3]  (config order is [0,1,2,3])
+   2nd resolution attempted 1: matched index 1
+   PASS  first resolution had to try the dead rung first
+   PASS  learned that index 1 works  — {"composeBox":1}
+   PASS  next attempt order puts 1 first  — [1,0,2,3]
+   PASS  second resolution succeeds on its FIRST attempt
+   PASS  still reports the true matched index  — 1
+   PASS  hint persisted to storage
+   PASS  selector_order_learned was logged
+   PASS  no uncaught error
+
+==========================================================================
+STEP 4b — healthy config: self-tuning must change nothing
+==========================================================================
+      [StillWithYou] {"ts":"2026-07-28T19:19:39.804Z","event":"config_source","source":"remote","version":2,"updated":"2026-07-29T00:00:00Z","compose_selectors":5,"elapsed_ms":2}
+      [StillWithYou] {"ts":"2026-07-28T19:19:39.804Z","event":"config_applied","source":"remote"}
+   PASS  matches on index 0 as configured
+   PASS  attempt order unchanged from config  — [0,1,2,3]
+   PASS  one attempt, both times
+   PASS  no uncaught error
+
+==========================================================================
+STEP 5 — config-push recovery, no code change
+==========================================================================
+      [StillWithYou] {"ts":"2026-07-28T19:19:40.821Z","event":"config_source","source":"remote","version":3,"updated":"2026-07-29T00:00:00Z","compose_selectors":2,"elapsed_ms":2}
+      [StillWithYou] {"ts":"2026-07-28T19:19:40.821Z","event":"config_applied","source":"remote"}
+
+   BEFORE  config v3: health=detached, indicator=true
+   PASS  extension is broken, as expected
+   PASS  indicator shown to the user
+   PASS  config source is remote — it is running the broken config
+   PASS  no uncaught error even while broken
+
+   >>> edited selectors.json only: v3 -> v4. No extension code changed. <<<
+      [StillWithYou] {"ts":"2026-07-28T19:19:41.858Z","event":"config_source","source":"remote","version":4,"updated":"2026-07-29T00:00:00Z","compose_selectors":2,"elapsed_ms":2}
+      [StillWithYou] {"ts":"2026-07-28T19:19:41.858Z","event":"config_applied","source":"remote"}
+   AFTER   config v4: health=attached, indicator=false
+   PASS  extension recovered  — attached
+   PASS  indicator cleared
+   PASS  running the new config version  — 4
+   PASS  config source still remote
+   PASS  compose box resolves again
+   PASS  no uncaught error
+
+   Recovery required: 1 JSON edit. Extension code changed: 0 files.
+
+==========================================================================
+SUMMARY — 45/45 checks passed
+==========================================================================

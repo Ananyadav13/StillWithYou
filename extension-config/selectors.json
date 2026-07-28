@@ -20,7 +20,7 @@
   ],
   "version": 2,
   "updated": "2026-07-29T00:00:00Z",
-  "note": "B2 propagation test: simulates discovering a WhatsApp change and pushing a fixed selector. The extra composeBox rung is real and harmless - a broader ARIA-scoped fallback below the existing chain.",
+  "note": "v2 adds a broader ARIA-scoped composeBox fallback rung below the existing chain. Introduced during the Track B propagation test and kept because it is a genuine improvement: it degrades one step further before the chain runs out. Measured propagation main->CDN: 248s.",
   "targets": {
     "composeBox": {
       "critical": true,

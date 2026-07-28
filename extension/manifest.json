@@ -6,7 +6,10 @@
 
   "permissions": ["storage"],
 
-  "host_permissions": ["http://127.0.0.1:8000/*"],
+  "host_permissions": [
+    "http://127.0.0.1:8000/*",
+    "https://raw.githubusercontent.com/Ananyadav13/StillWithYou/*"
+  ],
 
   "background": {
     "service_worker": "background.js",
@@ -19,6 +22,7 @@
       "js": [
         "config.js",
         "selectors.js",
+        "remote_config.js",
         "health_check.js",
         "banner.js",
         "content.js"

@@ -520,6 +520,100 @@ explicitly a local unpacked POC with no deployment story.
 
 ---
 
+## Remote selector config — recovery, not just safe failure
+
+Everything above is about failing *safely* when WhatsApp's DOM moves. This is the other
+half: recovering *quickly*. Design, host choice and threat model in
+[`phase5-remote-config.md`](phase5-remote-config.md); evidence in
+[`phase5-config-evidence.txt`](phase5-config-evidence.txt) — **45/45 checks**.
+
+The selector chains now come from
+[`extension-config/selectors.json`](../extension-config/selectors.json), fetched at
+runtime. A DOM change becomes a config push instead of a code edit plus an extension
+reload plus a re-test for every user.
+
+### Three tiers, all three verified
+
+| source | when | verified |
+|---|---|---|
+| `remote` | fetched from GitHub | Step 3a — fetched, applied, written to `chrome.storage.local` with a timestamp |
+| `cache` | fetch failed, last-known-good exists | Step 3b — network blocked, cached config used, **no health indicator** (a config outage is not a DOM outage) |
+| `hardcoded` | no network *and* no cache | Step 3c — frozen snapshot in `selectors.js`, compose box still resolves |
+
+`config_source` is logged on **every** path, every load, so a console paste answers
+"which selectors am I actually running" without inference. Without that, "the selectors
+are wrong" and "the config never loaded" look identical.
+
+**A bug this found.** A reachable-but-malformed config originally returned
+`unavailable` without consulting the cache — so one bad push dropped every client to the
+frozen snapshot, while merely being *offline* correctly kept last-known-good. Backwards:
+a bad push is both more likely and more in need of a limited blast radius. Both failure
+paths now share one `fallbackToCache`, verified by Step 3d — the good cache entry
+survives a garbage push, and the garbage is never written.
+
+### The load sequence never waits for the network
+
+`selectors.js` boots with the frozen snapshot active synchronously. The fetch is fired
+after the observer is running and is never awaited; a better config swaps in when it
+arrives, typically 3–9ms locally. Awaiting it would put a third-party HTTP request in the
+critical path of WhatsApp Web's own page load, on every load — the failure mode being
+that a slow GitHub makes WhatsApp feel slow, which is the one thing this phase is
+organised around never doing. Fetch deadline is 2.5s, deliberately under the analysis
+call's 3s since nothing is waiting on the result.
+
+### Self-tuning selector order
+
+The index that last resolved is remembered per target and tried first, persisted so the
+hint survives a reload. After a partial DOM change the config's priority order is wrong,
+and without this every resolution re-pays the failed queries on every mutation until
+someone pushes a reordered config.
+
+Measured with the first rung dead:
+
+```
+1st resolution (hint cleared)  attempted 2 selectors, matched index 1
+learned hint                   {"composeBox": 1}
+next attempt order             [1,0,2,3]   (config order is [0,1,2,3])
+2nd resolution                 attempted 1 selector,  matched index 1
+```
+
+The hint is a **hint, never a filter** — the full ordered list is still tried after it,
+so a stale hint costs one extra query and can never make a resolvable target
+unresolvable. Step 4b asserts it changes nothing when healthy: attempt order stays
+`[0,1,2,3]`, one attempt both times.
+
+### Step 5 — a config push recovering a broken extension
+
+Every selector in the shipped config was replaced with a dead one, simulating a WhatsApp
+change. Then **only the JSON was edited** — no extension file touched, nothing rebuilt,
+nothing reloaded from disk:
+
+```
+BEFORE  config v3: health=detached, indicator=true    <- user sees "couldn't attach"
+>>> edited selectors.json only: v3 -> v4. No extension code changed. <<<
+AFTER   config v4: health=attached, indicator=false   <- recovered
+
+Recovery required: 1 JSON edit. Extension code changed: 0 files.
+```
+
+That is the concrete evidence for "a DOM change is a config push, not a code release".
+
+**Verified against a local HTTP server, not GitHub.** Serving locally is what makes this
+testable in one run — against the real repo it would need a commit, a push and a CDN
+wait. What is *not* proven here: that `raw.githubusercontent.com` is reachable from the
+extension, and that GitHub's ~5-minute raw cache behaves as documented. Those need the
+config file actually pushed and are the real-site half of this step.
+
+### What this does not solve
+
+It handles **selector strings changing while the structure stays reachable** — the common
+case. It does **not** survive structural change: a closed Shadow DOM, a cross-origin
+iframe, or a canvas-rendered compose box is unreachable by any CSS selector, and no
+config push helps. The health check still fires correctly there; the extension just
+cannot be fixed remotely.
+
+---
+
 ## Evidence status — what is verified and what is not
 
 This section exists because the distinction is easy to blur and the project's whole

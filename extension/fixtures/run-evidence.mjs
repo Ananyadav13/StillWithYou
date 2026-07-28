@@ -96,7 +96,7 @@ function startSlowServer(port) {
 
 /* ------------------------------------------------------------------- set-up */
 
-async function makePage(browser, { breakSelector = false } = {}) {
+async function makePage(browser, { breakSelector = false, configBridge = null } = {}) {
   const page = await browser.newPage();
 
   const logs = [];
@@ -121,6 +121,11 @@ async function makePage(browser, { breakSelector = false } = {}) {
       runtime: {
         lastError: undefined,
         sendMessage: (msg, cb) => {
+          // Routed by type, exactly as background.js routes it.
+          if (msg && msg.type === 'SWY_CONFIG') {
+            window.__swyConfigBridge(Boolean(msg.force)).then((result) => cb(result));
+            return;
+          }
           window.__swyAnalyzeCalls.push(msg.content);
           // Forwarded to api.js running in Node — see the header on why this is
           // faithful rather than a shortcut.
@@ -145,7 +150,7 @@ async function makePage(browser, { breakSelector = false } = {}) {
   let selectorsSource = read('selectors.js');
   if (breakSelector) {
     /* THE DELIBERATE BREAK. Every rung of the composeBox chain is rewritten to a
-     * selector that is valid CSS and matches nothing — which is what a WhatsApp
+     * selector that is valid CSS and matches nothing - which is what a WhatsApp
      * redesign looks like from here. The send-button chain is left intact so the
      * report shows one target up and one down, the case the two-canary design exists
      * for. */
@@ -155,8 +160,23 @@ async function makePage(browser, { breakSelector = false } = {}) {
     );
   }
   await page.addScriptTag({ content: selectorsSource });
+
+  await page.addScriptTag({ content: read('remote_config.js') });
   await page.addScriptTag({ content: read('health_check.js') });
   await page.addScriptTag({ content: read('banner.js') });
+
+  // Default: no remote config available, so the frozen snapshot stays active. Tests
+  // that care about config override this by exposing their own bridge first.
+  if (!configBridge) {
+    await page.exposeFunction('__swyConfigBridge', async () => ({
+      source: 'unavailable',
+      config: null,
+      reason: 'test_default',
+      elapsedMs: 0,
+    }));
+  } else {
+    await page.exposeFunction('__swyConfigBridge', configBridge);
+  }
 
   return { page, logs, pageErrors };
 }
@@ -190,6 +210,82 @@ try {
     check('health is green', report.healthy === true && report.degraded === false);
     check('no health indicator shown', (await page.$('#swy-health-indicator')) === null);
     check('no uncaught error reached the page', pageErrors.length === 0, pageErrors.join('; '));
+    await page.close();
+  }
+
+  /* =================================================================
+   * STEP 2a-ii — no conversation open
+   *
+   * Regression test for a bug found on the real site: WhatsApp renders no compose box
+   * until a chat is opened, and the health check reported that normal landing state as
+   * a DOM failure. The indicator therefore appeared on every load before the user
+   * clicked anything. An indicator that fires during normal operation trains the user
+   * to dismiss it, which destroys the signal on the day the DOM really does move.
+   * ================================================================= */
+  header('STEP 2a-ii — no conversation open (splash screen, nothing to attach to)');
+
+  {
+    const { page, logs, pageErrors } = await makePage(browser);
+    /* Remove the whole conversation pane, which is what WhatsApp's splash state is. */
+    await page.evaluate(() => document.getElementById('main').remove());
+    await page.addScriptTag({ content: read('content.js') });
+    await sleep(400);
+
+    const report = await page.evaluate(() => window.SWY.health.inspect());
+    const stored = await page.evaluate(() => window.__swyStorage);
+
+    check('state is `idle`, not `detached`', report.state === 'idle', report.state);
+    check('reported healthy — this is not a fault', report.healthy === true);
+    check('NO indicator shown', (await page.$('#swy-health-indicator')) === null);
+    check(
+      'NO failure counted against the selectors',
+      !stored.selector_failures || !stored.selector_failures.composeBox,
+      JSON.stringify(stored.selector_failures || {}),
+    );
+    check('no selector_failed logged', !logs.some((l) => l.includes('selector_failed')));
+    check('no uncaught error', pageErrors.length === 0, pageErrors.join('; '));
+    await page.close();
+  }
+
+  /* =================================================================
+   * STEP 2a-iii — log volume under continuous DOM churn
+   *
+   * Also from the real site: the observer ran on every mutation, so WhatsApp's constant
+   * DOM churn produced dozens of identical warnings per second and turned the failure
+   * counter into a count of observer ticks rather than of outages.
+   * ================================================================= */
+  header('STEP 2a-iii — log volume while the DOM churns and the compose box is missing');
+
+  {
+    const { page, logs, pageErrors } = await makePage(browser, { breakSelector: true });
+    await page.addScriptTag({ content: read('content.js') });
+    /* 60 mutations over ~3s, which is comparable to WhatsApp's real churn. */
+    await page.evaluate(() => {
+      let n = 0;
+      const id = setInterval(() => {
+        const d = document.createElement('div');
+        d.textContent = `churn ${n}`;
+        document.getElementById('main').appendChild(d);
+        if (++n >= 60) clearInterval(id);
+      }, 50);
+    });
+    await sleep(3500);
+
+    const failedLogs = logs.filter((l) => l.includes('selector_failed')).length;
+    const healthLogs = logs.filter((l) => l.includes('health_check')).length;
+    const stored = await page.evaluate(() => window.__swyStorage);
+    const count = (stored.selector_failures && stored.selector_failures.composeBox.count) || 0;
+
+    console.log(`\n   60 DOM mutations over 3s produced:`);
+    console.log(`     selector_failed logs   ${failedLogs}`);
+    console.log(`     health_check logs      ${healthLogs}`);
+    console.log(`     persisted failure count ${count}`);
+
+    check('selector_failed logged once, not per mutation', failedLogs <= 2, `${failedLogs}`);
+    check('health_check logged on state change only', healthLogs <= 2, `${healthLogs}`);
+    check('failure counted as one incident, not 60', count <= 2, `${count}`);
+    check('indicator still shown — the real failure is not suppressed', (await page.$('#swy-health-indicator')) !== null);
+    check('no uncaught error', pageErrors.length === 0, pageErrors.join('; '));
     await page.close();
   }
 

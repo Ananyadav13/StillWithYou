@@ -223,10 +223,14 @@
   function boot() {
     try {
       /* Health first, before anything is bound. If the DOM has moved, the user finds
-       * out immediately rather than after a pause that produces nothing. */
+       * out immediately rather than after a pause that produces nothing.
+       *
+       * On a cold load this is almost always `idle` — WhatsApp shows a splash screen
+       * until a chat is opened, so there is genuinely nothing to attach to yet. The
+       * observer below picks it up the moment a conversation is opened. */
       const report = self.SWY.health.run('load');
 
-      if (report.healthy) attach();
+      if (report.state === 'attached') attach();
 
       /* WhatsApp Web renders its chat pane asynchronously, so the compose box often
        * does not exist yet at document_idle, and it is replaced on every conversation
@@ -236,22 +240,51 @@
        *
        * This observes structure only. It never reads message content, and it is not
        * scoped to the message list. */
-      const observer = new MutationObserver(() => {
+      /* Coalesced. WhatsApp Web mutates its DOM many times a second — running the
+       * attach/health path on every callback produced dozens of duplicate console
+       * lines per second and did the same DOM queries over and over for no benefit.
+       * 250ms is far below human reaction time, so re-attaching after a conversation
+       * switch still feels instant. */
+      let observerTimer = null;
+      const onMutation = () => {
         try {
-          if (!document.body.contains(attachedBox)) {
+          if (attachedBox && !document.body.contains(attachedBox)) {
             attachedBox = null;
             self.SWY.banner.remove();
           }
-          attach();
+          if (!attach()) {
+            /* Could not attach. `run` distinguishes "no chat open" (idle, silent) from
+             * "chat open but the compose box is gone" (detached, indicator shown), so
+             * this is safe to call on every settle. */
+            self.SWY.health.run('observer');
+          }
         } catch (_) {
           /* Rule 1 again: nothing thrown from an observer callback reaches the page,
            * but an exception here would silently kill re-attachment. */
         }
+      };
+
+      const observer = new MutationObserver(() => {
+        if (observerTimer) clearTimeout(observerTimer);
+        observerTimer = setTimeout(onMutation, 250);
       });
 
       observer.observe(document.body, { childList: true, subtree: true });
 
       log('observer_started', {});
+
+      /* Config last, and NOT awaited. Everything above is already running on the frozen
+       * snapshot, so a slow or unreachable GitHub delays nothing. When a newer config
+       * lands, re-run the health check and try to attach with the new selectors — which
+       * is the whole payoff: a selector fix pushed to a JSON file takes effect here,
+       * with no code change and no extension reload. */
+      self.SWY.remoteConfig.onInstalled((source) => {
+        log('config_applied', { source });
+        attachedBox = null;
+        if (self.SWY.health.run('config_installed').state === 'attached') attach();
+      });
+
+      void self.SWY.remoteConfig.refresh();
     } catch (error) {
       /* Absolute last line of defence. Nothing from this extension reaches WhatsApp's
        * page context as an uncaught error. */
