@@ -641,6 +641,12 @@ Also added: self-tuning selector order (the index that last resolved is tried fi
 persisted, so a partial DOM change stops re-paying failed queries on every mutation) and
 `fixtures/sync-snapshot.mjs`, which catches drift between the JSON and the frozen copy.
 
+**A bug the tests found.** A reachable-but-*malformed* config originally returned
+`unavailable` without consulting the cache — so one bad push dropped every client to the
+frozen snapshot, while merely being offline correctly kept last-known-good. Backwards: a
+bad push is both likelier and more in need of a limited blast radius. Both failure paths
+now share one `fallbackToCache`.
+
 **Step 5, the payoff.** Every selector replaced with a dead one, then **only the JSON
 edited** — no extension file touched, nothing reloaded:
 

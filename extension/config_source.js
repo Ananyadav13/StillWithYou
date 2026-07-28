@@ -126,6 +126,35 @@ function writeCache(entry) {
 export async function loadConfig({ force = false } = {}) {
   const startedAt = Date.now();
 
+  /* Last-known-good, or `unavailable` if there isn't one.
+   *
+   * Shared by both failure paths, because they need identical handling and originally
+   * did not get it: the "fetched but invalid" branch used to return `unavailable`
+   * directly without ever consulting the cache. That made a single malformed push worse
+   * than being offline — offline fell back to last-known-good, while a bad push dropped
+   * every client to the frozen snapshot. Exactly backwards, since a bad push is the
+   * more likely event and the one whose blast radius most needs limiting. */
+  const fallbackToCache = async (reason) => {
+    const cached = await readCache();
+    if (cached && cached.config && !validateConfig(cached.config)) {
+      return {
+        source: 'cache',
+        config: cached.config,
+        version: cached.config.version,
+        cachedAt: cached.cachedAt,
+        reason,
+        elapsedMs: Date.now() - startedAt,
+      };
+    }
+    return {
+      source: 'unavailable',
+      config: null,
+      version: null,
+      reason,
+      elapsedMs: Date.now() - startedAt,
+    };
+  };
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
@@ -145,16 +174,10 @@ export async function loadConfig({ force = false } = {}) {
     const parsed = await response.json();
     const invalid = validateConfig(parsed);
     if (invalid) {
-      /* A reachable but malformed config is NOT cached, and is treated as a fetch
-       * failure so the caller falls back to last-known-good. A bad push should cost
-       * nothing beyond the config staying at its previous value. */
-      return {
-        source: 'unavailable',
-        config: null,
-        version: null,
-        reason: `invalid:${invalid}`,
-        elapsedMs: Date.now() - startedAt,
-      };
+      /* A reachable but malformed config is NOT cached, and is treated exactly like a
+       * fetch failure. A bad push should cost nothing beyond the config staying at its
+       * previous value. */
+      return fallbackToCache(`invalid:${invalid}`);
     }
 
     const config = normalise(parsed);
@@ -172,25 +195,7 @@ export async function loadConfig({ force = false } = {}) {
         ? 'timeout'
         : `error:${String((error && error.message) || error).slice(0, 60)}`;
 
-    const cached = await readCache();
-    if (cached && cached.config && !validateConfig(cached.config)) {
-      return {
-        source: 'cache',
-        config: cached.config,
-        version: cached.config.version,
-        cachedAt: cached.cachedAt,
-        reason,
-        elapsedMs: Date.now() - startedAt,
-      };
-    }
-
-    return {
-      source: 'unavailable',
-      config: null,
-      version: null,
-      reason,
-      elapsedMs: Date.now() - startedAt,
-    };
+    return fallbackToCache(reason);
   } finally {
     clearTimeout(timer);
   }
