@@ -1,0 +1,227 @@
+/* Avatar state styling.
+ *
+ * The whole character is one SVG whose geometry is written down exactly once in
+ * AvatarFace.tsx. Every state below changes only the *values* fed into that geometry —
+ * accent colour, brow angle, eye openness, mouth curvature. Nothing here adds or removes
+ * a shape. That is what makes "same base character, varying only expression" a
+ * structural property rather than a thing to remember, and it is what lets the
+ * frustrated/angry restraint (see the table further down) be checked by reading numbers
+ * instead of by squinting at two pictures.
+ *
+ * Approach rationale — CSS custom properties rather than Framer Motion or Lottie — is in
+ * docs/phase4-scope.md, Step 1. Short version: this needs a crossfade between five
+ * discrete states and a slow idle loop, which is compositor-friendly CSS, and neither
+ * animation library was already a dependency.
+ *
+ * Note the transitions are declared on the *consuming* properties (transform, fill,
+ * stroke, opacity), never on the custom properties themselves. Unregistered custom
+ * properties are not interpolable, but the computed transform/paint values that read
+ * them are, so this animates without needing @property.
+ */
+
+.avatar {
+  /* Defaults double as the neutral state; every state block below overrides a subset. */
+  --accent: #8792a8;
+  --face-fill: #f1f4f9;
+  --brow-angle: 0deg;
+  --brow-y: 0px;
+  --eye-scale: 1;
+  --mouth-scale: 0.06;
+  --mouth-width: 1;
+  --ring-dash: none;
+  --ring-opacity: 0.28;
+  --dots-opacity: 0;
+
+  /* Under 300ms, per the Phase 4 scope. Fast enough not to feel laggy, slow enough
+   * that the change reads as an expression shifting rather than a hard cut. */
+  --state-transition: 220ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  display: inline-block;
+  line-height: 0;
+}
+
+.avatar__svg {
+  display: block;
+  overflow: visible;
+}
+
+/* ---------------------------------------------------------------------------
+ * The five states.
+ *
+ * frustrated -> angry is deliberately restrained. The pipeline detects `angry` at
+ * 6/15 (docs/phase3-results.md), so the avatar must not render it with the confidence
+ * of a fact. Concretely, angry moves along the *same three axes* as frustrated and
+ * roughly 1.5-2x as far from neutral, and introduces no axis of its own:
+ *
+ *     axis          neutral   frustrated   angry
+ *     brow-angle      0deg      10deg      16deg
+ *     eye-scale       1.00      0.92       0.85
+ *     mouth-scale     0.06     -0.45      -0.70
+ *
+ * THIS RATIO IS A CONSTRAINT, NOT AN ACCIDENT. Measured from the rendered DOM at
+ * size=132 (Phase 4 Step 2, docs/phase4-step2-states.png), as displacement from
+ * neutral in CSS px:
+ *
+ *     axis           frustrated   angry    angry / frustrated
+ *     eye width         -1.0       -1.8          1.8x
+ *     mouth depth       +2.3       +3.8          1.7x
+ *     brow rise         +2.7       +4.2          1.6x
+ *
+ * Keep that last column near 1.5-2x. Push it much past ~2.5x and the avatar starts
+ * asserting a confidence the 6/15 measurement does not support; flatten it under
+ * ~1.2x and the two states stop being distinguishable at a glance. If you change the
+ * values above, re-measure rather than eyeballing it — the debug grid at
+ * /?avatar-debug prints these numbers directly, which is why it exists.
+ *
+ * No flash, no shake, no size change, no faster motion, no alert chrome, no new shape.
+ * The angry accent is a muted clay (#c4705e), not a saturated alarm red — a deliberate
+ * choice, since red is the colour the eye reads as a verdict.
+ * ------------------------------------------------------------------------- */
+
+.avatar[data-state='idle'] {
+  --accent: #5c9e91;
+  --face-fill: #eef6f4;
+  --brow-angle: -4deg;
+  --brow-y: -1px;
+  --eye-scale: 1;
+  --mouth-scale: 1;
+  --mouth-width: 1;
+  --ring-opacity: 0.3;
+}
+
+.avatar[data-state='neutral'] {
+  --accent: #8792a8;
+  --face-fill: #f1f4f9;
+  --brow-angle: 0deg;
+  --brow-y: 0px;
+  --eye-scale: 1;
+  --mouth-scale: 0.06;
+  --mouth-width: 1;
+  --ring-opacity: 0.28;
+}
+
+.avatar[data-state='frustrated'] {
+  --accent: #d0964e;
+  --face-fill: #fdf5e9;
+  --brow-angle: 10deg;
+  --brow-y: 2px;
+  --eye-scale: 0.92;
+  --mouth-scale: -0.45;
+  --mouth-width: 0.92;
+  --ring-opacity: 0.34;
+}
+
+/* The angry state is deliberately held to a muted clay accent and a ~1.6-1.8x step
+ * beyond frustrated on the same three axes — rather than the flash, shake or alert-red
+ * the label invites — because the pipeline only detects `angry` correctly 6 times in 15,
+ * and a face that looks certain would be claiming an accuracy this system does not have. */
+.avatar[data-state='angry'] {
+  --accent: #c4705e;
+  --face-fill: #fbeeea;
+  --brow-angle: 16deg;
+  --brow-y: 3px;
+  --eye-scale: 0.85;
+  --mouth-scale: -0.7;
+  --mouth-width: 0.88;
+  --ring-opacity: 0.4;
+}
+
+/* `analyzing` is a status, not a mood, so it is allowed its own devices (dashed ring,
+ * progress dots) — the restraint rule above governs angry vs frustrated only. It
+ * deliberately borrows neutral's palette *and* its face: while analysis is in flight the
+ * avatar knows nothing yet, and a neutral expression is the only honest thing to show.
+ * An earlier draft narrowed the eyes here to suggest "thinking" — dropped, because a
+ * squint is an expression and this state has nothing to express. The dashed ring and the
+ * dots carry the status on their own. */
+.avatar[data-state='analyzing'] {
+  --accent: #8792a8;
+  --face-fill: #f1f4f9;
+  --brow-angle: 0deg;
+  --brow-y: -1px;
+  --eye-scale: 1;
+  --mouth-scale: 0.06;
+  --mouth-width: 0.7;
+  --ring-dash: 9 9;
+  --ring-opacity: 0.45;
+  --dots-opacity: 1;
+}
+
+/* ---------------------------------------------------------------------------
+ * Parts. Geometry lives in the markup; only values change.
+ * ------------------------------------------------------------------------- */
+
+.avatar__ring {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-dasharray: var(--ring-dash);
+  stroke-linecap: round;
+  opacity: var(--ring-opacity);
+  transition: stroke var(--state-transition), opacity var(--state-transition);
+}
+
+.avatar__head {
+  fill: var(--face-fill);
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  transition: fill var(--state-transition), stroke var(--state-transition);
+}
+
+.avatar__eye {
+  fill: var(--accent);
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: scale(var(--eye-scale));
+  transition: transform var(--state-transition), fill var(--state-transition);
+}
+
+.avatar__brow {
+  stroke: var(--accent);
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  fill: none;
+  vector-effect: non-scaling-stroke;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform var(--state-transition), stroke var(--state-transition);
+}
+
+.avatar__brow--left {
+  transform: translateY(var(--brow-y)) rotate(var(--brow-angle));
+}
+
+/* Mirrored so a positive --brow-angle always means "inner ends pulled down". */
+.avatar__brow--right {
+  transform: translateY(var(--brow-y)) rotate(calc(-1 * var(--brow-angle)));
+}
+
+.avatar__mouth {
+  stroke: var(--accent);
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  fill: none;
+  /* Without this the non-uniform scaleY below would squash the stroke as well as the
+   * curve, and a flat mouth would render as a hairline. */
+  vector-effect: non-scaling-stroke;
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: scale(var(--mouth-width), var(--mouth-scale));
+  transition: transform var(--state-transition), stroke var(--state-transition);
+}
+
+.avatar__dot {
+  fill: var(--accent);
+  opacity: var(--dots-opacity);
+  transition: opacity var(--state-transition), fill var(--state-transition);
+}
+
+/* ---------------------------------------------------------------------------
+ * Reduced motion. An expressive face is exactly the sort of ambient movement this
+ * setting exists to suppress: the state still changes, it just stops sliding.
+ * ------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .avatar {
+    --state-transition: 1ms linear;
+  }
+}

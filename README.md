@@ -10,8 +10,18 @@ StillWithYou is an AI-powered emotional communication assistant that starts as a
 
 ## Documentation
 
+- [docs/project-overview.md](docs/project-overview.md) — the complete introduction to the
+  project: what it does, why, architecture, every measured number, what works and what
+  does not. Written to be read cold, with no prior context. **Start here if you are new.**
 - [docs/progress.md](docs/progress.md) — current state, measured numbers, and every
-  gotcha worth not rediscovering. **Start here.**
+  gotcha worth not rediscovering. **Start here if you are picking up the build.**
+- [docs/prompts.md](docs/prompts.md) — every prompt in the project: the live product
+  prompts, the development briefs, and the prompting patterns that worked.
+- [docs/phase3-scope.md](docs/phase3-scope.md) — language scope and non-goals.
+- [docs/phase4-scope.md](docs/phase4-scope.md) — the mood avatar: scope, the honesty
+  constraint on the `angry` state, and the measured animation cost.
+- [docs/phase3-results.md](docs/phase3-results.md) — multilingual accuracy, with the
+  measurement-validity analysis behind the numbers.
 - [docs/phase2-slo.md](docs/phase2-slo.md) — the reliability target and failure modes.
 - [docs/phase2-runbook.md](docs/phase2-runbook.md) — what to check when something breaks.
 
@@ -187,5 +197,20 @@ frontend/src
   - Local lexicon fallback so analysis never depends on Gemini being up
   - Content-hash result cache, structured JSON logging, Prometheus `/metrics`
   - Failure-injection test suite
-- **Phase 3 — later**
-  - Rendering mood/toxicity in the UI, avatar, multi-language support
+- **Phase 3 — multilingual analysis** ✅
+  - Local XLM-RoBERTa as the active analyzer (~40ms on CPU), zero paid API
+  - English, Hindi (Devanagari) and Hinglish, with a three-pass language detector
+    (45/45 on fixtures, 6/6 on held-out real messages)
+  - 45-message hand-written corpus; mood 32/45, with the `angry` weakness (6/15)
+    documented rather than engineered around
+  - Per-category regression floors, validated by injecting a real regression
+- **Phase 4 — mood avatar** ✅
+  - 2D SVG character reflecting the four detected moods plus an `analyzing` state,
+    driven by the existing pipeline output — presentation only, no backend change
+  - `angry`'s visual escalation deliberately held to ~1.6–1.8× `frustrated`, because
+    `angry` is only detected 6 times in 15
+  - CSS transitions rather than an animation library, with the decision settled by
+    profiling (0.400ms median commit; a reduced-motion ablation locates the frame cost
+    in repaint, not React)
+  - 3s client-side deadline so a stalled analysis can never leave a spinner running
+- **Next** — surface `rewrite_suggestion`, a frontend test runner, browser extension

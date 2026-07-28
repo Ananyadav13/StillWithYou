@@ -4,6 +4,11 @@ Living record of what is built, what is verified, and what is blocked. Update th
 at the end of every step. If you are picking this project up in a fresh session,
 read this file first, then `docs/phase2-slo.md` and `docs/phase2-runbook.md`.
 
+For a full standing introduction to the project rather than a change log — the problem,
+the architecture, every measured number, and the known limitations — see
+[`docs/project-overview.md`](project-overview.md). Every prompt in the project, product
+and development, is in [`docs/prompts.md`](prompts.md).
+
 **Last updated:** 2026-07-28
 
 ---
@@ -16,10 +21,11 @@ read this file first, then `docs/phase2-slo.md` and `docs/phase2-runbook.md`.
 | Phase 1 backfill — persistence + Gemini | ✅ Done (`8f23409`) |
 | Phase 2 — resilience layer | ✅ Steps 0–10 done, deferred item now closed |
 | Phase 3 — multilingual (en / hi / hi-en-mixed) | ✅ Steps 0–11 done, one known limitation |
+| Phase 4 — 2D mood avatar | ✅ Steps 0–7 done, presentation layer only, no backend change |
 
 **Everything runs.** Postgres, Redis and Prometheus are in compose; the API, the
-ARQ worker and the frontend all start clean; **17 tests pass** (5 Phase 2
-failure-injection, 6 cache-key, 6 Phase 3 regression).
+ARQ worker and the frontend all start clean; **21 tests pass** (5 Phase 2
+failure-injection, 6 cache-key, 10 Phase 3 regression).
 
 **The Phase 2 deferred item is closed.** Step 3's DONE WHEN asked to see
 `pending → complete` with a result sourced from Gemini. That was observed end-to-end
@@ -35,6 +41,24 @@ during Phase 3 Step 7 testing, once Gemini recovered — see below.
 call 1: OK 2154ms  mood=angry tox=0.7 source=gemini
 call 2: OK 2050ms  mood=warm  tox=0.0 source=gemini
 ```
+
+### Two blockers to fix BEFORE re-enabling it
+
+Found while compiling [`docs/prompts.md`](prompts.md). Neither affects anything today,
+because the prompt is dormant — both bite the moment `GEMINI_ENABLED=true`:
+
+1. **The Gemini prompt says "two people in a close relationship."** The product serves
+   any two people — friends, colleagues, housemates. The prompt primes for an intimacy
+   baseline the product does not assume.
+2. **The two analyzers use incompatible mood vocabularies.** Gemini returns an open set
+   (`warm`, `hurt`, `playful`, `anxious`…); `multilingual_local` returns exactly
+   `calm/neutral/frustrated/angry`. This was *observed*, not theorised — during Step 7
+   testing a stale worker routed to Gemini and returned `warm` where the fixture expected
+   `calm`. Re-enabling as-is would fail the Phase 3 regression test in a way that looks
+   like a model regression rather than a vocabulary mismatch, and would put two label
+   systems in one database column.
+
+Fix: constrain `mood` with an `enum` in the response schema so the API enforces it.
 
 ### It is still switched off, deliberately
 
@@ -154,6 +178,37 @@ toxicity classifier had to recover ≥5 of the 9 missed `angry` fixtures. **It r
 genuinely angry messages**. Both models are proxies for *loud* negativity. Reverted, not
 integrated; documented rather than forced.
 
+### The regression test: per-category floors, not one aggregate
+
+`tests/test_multilingual_regression.py` guards the accuracy above with **five separate
+floors** rather than a single total. Each is measured−1, so one fixture flipping is
+tolerated as noise while a real regression fails the build.
+
+| category | measured | floor | margin |
+|---|---|---|---|
+| calm | 8/9 | 7/9 | +1 |
+| neutral | 9/9 | 8/9 | +1 |
+| frustrated | 9/12 | 8/12 | +1 |
+| **angry** | 6/15 | **6/15** | **0 — hard floor, blocks a merge on any drop** |
+| overall | 32/45 | 30/45 | +2 |
+| language detection | 45/45 | 39/45 | +6 |
+
+The overall floor is 30, deliberately: at 32 it would bind before any category floor
+could fire (reinstating the zero-margin brittleness the redesign removed); at 29, the
+exact sum of the floors, it could never fail independently. At 30 it catches **broad
+shallow degradation** across several categories that no single floor would notice.
+
+Each category is its own test function, not five asserts in one — with a single function
+the first failure masks the rest, and naming the broken capability is the whole point.
+
+**Verified by injection, not just by passing.** Forcing one `angry` fixture wrong dropped
+that category to 5/15 and failed its assertion by name — while the **overall check passed
+at 31/45**. An aggregate-only test would have shipped that regression silently.
+
+**Caveat:** the floors assume `multilingual_samples.json` is unchanged. A failure
+immediately after editing fixtures is a fixture change, not a code regression —
+re-baseline rather than treating it as one. The test cannot distinguish the two.
+
 ### Fully free, zero Gemini dependency
 
 Everything above runs on a locally-hosted open-weight model. No paid API, no billing
@@ -161,17 +216,89 @@ account, no credit card, no network call at inference time. `analysis_source` is
 `multilingual_local` and never claims to be Gemini. Gemini remains wired as the nominal
 primary behind the circuit breaker, gated by `GEMINI_ENABLED` (currently `false`).
 
-## Measured numbers (all real, from this session)
+## Phase 4 — Avatar (2026-07-28)
 
-| Metric | Value |
-|--------|-------|
-| POST /messages, server-side | 27–42ms (median 41.1ms over 24 sends, p95 85.8ms) |
-| Gemini analysis, healthy | median 1410ms, 5/5 under 2s (`thinking_level="low"`) |
-| Gemini analysis, default thinking | 6.0–12.6s, 0/5 under 2s, one 30s timeout |
-| Local fallback compute | **median 0.014ms**, p95 0.026ms (n=1000) |
-| Cache hit (Redis GET) | median 1.085ms, p95 1.697ms (n=200) |
-| Circuit OPEN short-circuit | 3.87–6.72ms vs 3008–3014ms CLOSED |
-| Cache hit rate, realistic traffic | **37.5%** (9 hits / 24 sends, 12 unique) |
+Presentation layer only. No detection logic touched — `multilingual_local.py`,
+`language_detect.py`, `worker.py` and every other backend file are unchanged from
+Phase 3, and that is checkable rather than claimed: `git status --short backend/` is
+empty across the whole phase. If the avatar ever looks wrong, the fix is in the avatar or
+it is a Phase 3 accuracy issue; it is never a quiet threshold tweak.
+
+Scope, the honesty constraint and the measured numbers behind both are in
+[`docs/phase4-scope.md`](phase4-scope.md).
+
+| Step | Delivered | Evidence |
+|------|-----------|----------|
+| 0–1 | Scope + approach decision | `phase4-scope.md`; CSS chosen over Framer Motion / Lottie |
+| 2 | Five states as one SVG | `phase4-step2-states.png` — all five plus measured geometry |
+| 3 | Wired to real polled output | `phase4-step3-live.png` — 3 moods, all `multilingual_local` |
+| 4 | Restraint documented at point of definition | comment on the `angry` block in `Avatar.css` |
+| 5 | Performance measured | 0.400ms median commit; reduced-motion ablation isolates paint |
+| 6 | Analyzing-state timeout | `phase4-step6-timeout.png` — 4 cases against the real failure |
+
+**What it does.** A single inline SVG character (`frontend/src/components/Avatar/`) whose
+expression is driven by CSS custom properties, wired to the same polled
+`mood`/`analysis_status` that `pollAnalysis` already writes into `useChat`'s `messages`
+array — the avatar reads the newest message off that array, so there is no second fetch
+and no way for the face and the message list to disagree. Five states: `idle` (calm plus
+every no-data case), `neutral`, `frustrated`, `angry`, and `analyzing` (covering the
+measured ~422–638ms send→`complete` window). No sixth state — no confidence display, no
+toxicity- or heat-driven variants, nothing the pipeline does not emit.
+
+**Honesty constraint.** Angry detection is measured at 6/15
+([`phase3-results.md`](phase3-results.md)), behind a regression floor with zero margin. An
+avatar that renders angry as an alarm — flashing, shaking, alert-red — would present a
+coin-flip as a diagnosis, in the most confident medium the product has. So angry differs
+from frustrated by a small, *measured* step: ~1.6–1.8× frustrated's displacement from
+neutral along the same three axes (eye width, mouth depth, brow rise), introducing no new
+visual vocabulary at the top of the scale. The ratio table lives next to the values in
+`Avatar.css` so a later edit cannot drift past it unnoticed, and `/?avatar-debug` prints
+the numbers for re-measurement. Screen-reader copy says "reads as angry", not "is angry",
+for the same reason.
+
+This is not only a design position — it showed up live. One of Phase 3's nine missed
+`angry` fixtures, *"Forget it. I'm done asking you for anything."*, came back
+`frustrated` during Step 3 testing, and the avatar showed amber rather than clay. The
+6/15 limitation happening in front of a user, represented honestly, rather than sitting
+in a results table.
+
+**Technical decisions worth knowing.** CSS transitions over Framer Motion — the latter was
+never actually a project dependency (an earlier assumption that it was turned out to be
+false; `package.json` had only `react` and `react-dom`). Step 5's profiling then closed
+the question properly rather than leaving it unfired: the transitions *do* cost a little
+frame time, but a reduced-motion ablation running the identical 21 React commits returns
+p95 to baseline, which places the cost in `fill`/`stroke` repaint rather than React
+overhead — so an animation runtime would have added weight without addressing it. Render
+cost is 0.400ms median per commit against a 16.7ms frame budget. Acceptable, no change.
+
+**Known gap, now contained rather than fixed.** `pollAnalysis` leaves a message in
+`pending` forever on a single failed fetch, because the poll loop does not reschedule
+after a thrown error. Step 6 adds a 3s client-side deadline that forces the avatar to
+`idle`, verified against the real bug rather than a mock — a genuine CORS origin mismatch,
+`analyzing` at +2849ms, `idle` by +3364ms. The deadline is keyed on message id rather than
+a boolean, so a late real result is suppressed for that one message (confirmed: a real
+`mood=frustrated` arriving at +4013ms left the avatar on `idle`) while the next message
+animates normally. **The poll-loop retry behaviour is still unfixed** and belongs to a
+separate change to `useChat.ts` — "Step 6 done" does not mean `pollAnalysis` is fixed.
+
+---
+
+## Measured numbers (all real, measured in-project)
+
+| Metric | Value | Phase |
+|--------|-------|-------|
+| POST /messages, server-side | 27–42ms (median 41.1ms over 24 sends, p95 85.8ms) | 2 |
+| POST /messages, re-observed | 19–46ms | 3 |
+| End-to-end, send → `complete` | 422–638ms | 3 |
+| **Multilingual model inference** | **median 40.0ms**, min 27.8, p95 49.4, max 56.1 (n=20) | 3 |
+| Model cold load | 8.22s standalone, 7078ms in worker; first inference 469.6ms | 3 |
+| Local lexicon fallback compute | **median 0.014ms**, p95 0.026ms (n=1000) | 2 |
+| Cache hit (Redis GET) | median 1.085ms, p95 1.697ms (n=200) | 2 |
+| Circuit OPEN short-circuit | 3.87–6.72ms vs 3008–3014ms CLOSED | 2 |
+| Cache hit rate, realistic traffic | **37.5%** (9 hits / 24 sends, 12 unique) | 2 |
+| Gemini, healthy, `thinking_level="low"` | median 1410ms, 5/5 under 2s | 2 |
+| Gemini, default thinking level | 6.0–12.6s, 0/5 under 2s, one 30s timeout | 2 |
+| Gemini, after recovery | 2050–2154ms | 3 |
 
 ---
 
@@ -212,6 +339,15 @@ a 2s API regression until it was isolated with curl's `time_connect`.
 Phase 3 write died with `StringDataRightTruncationError`, surfacing as an ARQ job crash
 that left rows in `pending`. Widened to 32 in migration `c7d1a4f92b30`. Only the tests
 that hit real Postgres caught it — the fixture scripts never touch the database.
+
+**`CORS_ORIGINS` is an exact string match, so `127.0.0.1` is not `localhost`.** The
+allowlist is `['http://localhost:5173']`. Serving the frontend from
+`http://127.0.0.1:5173` — or from any other port — fails preflight with
+`OPTIONS /messages -> 400 Bad Request`, and the browser-side symptom is deeply
+misleading: the send appears to do nothing, no message row is created, and because
+`pollAnalysis` swallows the fetch error the UI just sits there. Use `localhost:5173`
+exactly, or add the origin you are using to `CORS_ORIGINS` in `backend/.env`. Found in
+Phase 4 Step 3 while driving the real UI from a headless browser on a non-default port.
 
 **A stale ARQ worker from an earlier session will silently steal jobs.** Phase 3 Step 7
 end-to-end results came back `source=gemini` despite `gemini_enabled=False`, because a
@@ -254,18 +390,41 @@ is OPEN.
 
 ## Known gaps / next candidates
 
-- Step 3's Gemini-sourced `complete` transition, pending API recovery.
+- **Two blockers before `GEMINI_ENABLED=true`** — the prompt's "close relationship"
+  framing and the mood-vocabulary mismatch. Detail at the top of this file and in
+  [`prompts.md`](prompts.md).
 - Cache lookup is wasted work while the circuit is OPEN (see above).
 - No single-flight: duplicate concurrent sends each do full work.
-- The frontend receives `analysis_source`, `mood` and scores but does not render
-  them — deliberately out of scope, UI is a later phase.
+- The frontend renders `mood` (as the Phase 4 avatar) but still shows nothing for
+  `toxicity_score`, `heat_score` or `rewrite_suggestion`. The rewrite suggestion is the
+  valuable one and deserves its own phase rather than a caption bolted to the avatar.
+- **`pollAnalysis` abandons a message permanently on a single failed fetch — contained
+  by Phase 4 Step 6, root cause still unfixed.** In `useChat.ts` the `catch` around
+  `getAnalysis` logs and `return`s without rescheduling the next tick and without moving
+  `analysisStatus` off `pending`, so one transient network error strands that message in
+  `pending` for the life of the session.
+
+  *Contained:* the avatar's 3s deadline (`useAvatarState.ts`) forces `idle` once
+  `pending` has lasted longer than any healthy request, so the visible symptom — a
+  spinner that never stops — cannot occur. Verified against the real bug rather than a
+  mock: serving the frontend from a non-allowlisted origin makes the request genuinely
+  fail, and the avatar reverts at ~3.36s (`docs/phase4-step6-timeout.png`).
+
+  *Still broken underneath:* the message keeps no analysis and is never retried. The
+  containment is presentation-only and deliberately so — the real fix is a bounded retry
+  with backoff in the poll loop, which touches `useChat`'s core logic and is its own
+  change. **Worth doing separately.** Do not let the working avatar disguise it.
 - Grafana was skipped as optional.
 
 ## Conventions
 
-- Commits: `Phase 2, Step N: <description>`, authored by Ananya, no AI attribution.
+- Commits: `Phase N, Step M: <description>` (or `Phase N, Steps M-K:` when a commit
+  spans several), authored by Ananya, **no AI attribution and no `Co-Authored-By`**.
 - Every step needs pasted real output before it counts as done.
+- Accuracy numbers are reported with their margin. A threshold met at the boundary is
+  never written as "passes" without saying so.
 - Secrets live in `backend/.env` (gitignored); `.env.example` documents the keys.
+- Docs are updated in the same commit as the code they describe.
 
 ## Running it
 

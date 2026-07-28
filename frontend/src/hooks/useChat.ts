@@ -31,6 +31,17 @@ export function useChat() {
         const analysis = await getAnalysis(messageId);
 
         if (analysis.analysis_status !== 'pending') {
+          if (import.meta.env.DEV) {
+            // Pairs the avatar's visible state with the value that actually drove it, so
+            // a screen recording can be checked against real pipeline output instead of
+            // being taken on trust. Phase 4 Step 3 evidence.
+            console.info(
+              `[avatar] ${new Date().toISOString()} id=${messageId.slice(0, 8)} ` +
+                `status=${analysis.analysis_status} mood=${analysis.mood} ` +
+                `settled_after=${Date.now() - startedAt}ms`,
+            );
+          }
+
           setMessages((prev) =>
             prev.map((message) =>
               message.id === messageId
@@ -122,11 +133,19 @@ export function useChat() {
     [pollAnalysis],
   );
 
+  // The avatar reflects the message the user most recently sent — that is the one they
+  // are being given a second opinion on. It reads the same polled state the message list
+  // renders from, so there is no separate fetch and no way for the two to disagree.
+  const latestMessage = messages.length > 0 ? messages[messages.length - 1] : undefined;
+
   return {
     messages,
     input,
     setInput,
     isSending,
     sendMessage,
+    avatarMessageId: latestMessage?.id ?? null,
+    avatarMood: latestMessage?.mood ?? null,
+    avatarAnalysisStatus: latestMessage?.analysisStatus ?? null,
   };
 }
