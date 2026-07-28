@@ -16,6 +16,13 @@ class Settings(BaseSettings):
         validation_alias="CORS_ORIGINS",
     )
 
+    # Phase 5. POST /analyze-preview scores an unsent message without writing a row.
+    # It is the browser extension's only endpoint. Off-switch rather than a feature
+    # flag: the endpoint's real cost is that it loads the 1.1GB multilingual model into
+    # the API process as well as the worker, which is not worth paying on a deployment
+    # that never serves the extension.
+    preview_enabled: bool = True
+
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/stillwithyou"
     redis_url: str = "redis://localhost:6379/0"
 

@@ -1,0 +1,219 @@
+/* Nudge banner + health indicator, injected into WhatsApp Web.
+ *
+ * PALETTE IS A PORT, NOT A NEW DESIGN. The two tones are copied from
+ * frontend/src/components/NudgeBanner.css, which in turn takes them from Avatar.css so
+ * the banner and the avatar cannot disagree about what `frustrated` and `angry` look
+ * like:
+ *
+ *     tone         accent     surface
+ *     frustrated   #d0964e    #fdf5e9
+ *     angry        #c4705e    #fbeeea
+ *
+ * Angry is one muted step past frustrated in the SAME vocabulary and adds no device
+ * frustrated does not also use — no red, no flash, no pulse, no size change, no shake.
+ * That restraint is inherited from Phase 4 and rests on a measurement: `angry` is
+ * detected correctly 6 times in 15. A banner that looks like an alarm would assert a
+ * confidence the pipeline does not have. #c4705e is a muted clay rather than alert red
+ * because red is the colour the eye reads as a verdict, and this is not a verdict.
+ *
+ * INJECTING CSS INTO SOMEBODY ELSE'S PAGE
+ * ---------------------------------------
+ * Every rule here is scoped to a `.swy-` class. There is not one bare element selector,
+ * not one `*`, and nothing that touches a class WhatsApp owns. A stylesheet is the
+ * easiest way to break a host page from an extension, and the only defence is that the
+ * blast radius is a prefix.
+ *
+ * `all: initial` on the roots blocks inheritance in the other direction: WhatsApp's own
+ * cascade cannot reach in and restyle the banner, which would otherwise make its
+ * appearance a function of whatever the host page happens to be doing. Everything the
+ * banner needs is then set explicitly, and z-index sits just below the range WhatsApp
+ * uses for its own modals so a dialog is never covered by a nudge.
+ */
+
+.swy-banner,
+.swy-health {
+  all: initial;
+  box-sizing: border-box;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  /* Nirmala UI / Noto Sans Devanagari named explicitly for the same reason as the main
+   * app: the default stack has no Devanagari glyphs between them and Hindi renders only
+   * by the browser's last-resort fallback. The banner's body text can contain the
+   * user's own wording. */
+  font-family: 'Segoe UI', 'Nirmala UI', 'Noto Sans Devanagari', system-ui, sans-serif;
+  position: fixed;
+  z-index: 1000;
+  /* The container does not intercept clicks; only the banner's own controls do. The
+   * overlay must never be able to eat a click meant for WhatsApp. */
+  pointer-events: none;
+}
+
+/* ---------------------------------------------------------------------------
+ * Nudge banner
+ * ------------------------------------------------------------------------- */
+
+.swy-banner {
+  --swy-accent: #d0964e;
+  --swy-surface: #fdf5e9;
+  --swy-border: rgba(208, 150, 78, 0.38);
+  --swy-transition: 220ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: 520px;
+  padding: 10px 12px;
+  border: 1px solid var(--swy-border);
+  border-radius: 14px;
+  background: var(--swy-surface);
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.12);
+  color: #334155;
+  font-size: 13px;
+  line-height: 1.45;
+  /* The banner itself is interactive so Dismiss can be clicked; the container above is
+   * not. */
+  pointer-events: auto;
+  animation: swy-enter 180ms cubic-bezier(0.4, 0, 0.2, 1);
+  transition: background var(--swy-transition), border-color var(--swy-transition);
+}
+
+.swy-banner[data-tone='angry'] {
+  --swy-accent: #c4705e;
+  --swy-surface: #fbeeea;
+  --swy-border: rgba(196, 112, 94, 0.38);
+}
+
+.swy-banner__mark {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--swy-accent);
+  transition: background var(--swy-transition);
+}
+
+.swy-banner__body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.swy-banner__label {
+  display: block;
+  margin: 0 0 3px;
+  color: var(--swy-accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  transition: color var(--swy-transition);
+}
+
+.swy-banner__text {
+  display: block;
+  margin: 0;
+  color: #334155;
+}
+
+.swy-banner__meta {
+  display: block;
+  margin-top: 5px;
+  color: #64748b;
+  font-size: 11px;
+}
+
+.swy-banner__dismiss {
+  all: unset;
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border-radius: 8px;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  pointer-events: auto;
+}
+
+.swy-banner__dismiss:hover,
+.swy-banner__dismiss:focus-visible {
+  background: rgba(255, 255, 255, 0.75);
+  color: #334155;
+}
+
+.swy-banner__dismiss:focus-visible {
+  outline: 2px solid var(--swy-accent);
+  outline-offset: 1px;
+}
+
+/* ---------------------------------------------------------------------------
+ * Health indicator
+ *
+ * Deliberately duller than the banner. It reports the extension's own problem, which
+ * is less important than anything the user is doing on the page.
+ * ------------------------------------------------------------------------- */
+
+/* POSITION IS A CONSTRAINT, NOT A PREFERENCE.
+ *
+ * This chip was originally at `bottom: 16px; right: 16px`, which is precisely where
+ * WhatsApp's send button sits. The evidence harness caught it: a click aimed at the send
+ * button hit the chip instead. It shifted nothing in WhatsApp's layout and still broke
+ * WhatsApp — occluding an interactive control is a worse failure than moving one, because
+ * it is invisible in a screenshot and only shows up when someone tries to click.
+ *
+ * So the offset clears the compose footer (~62-70px) with room to spare. Do not reduce
+ * it. `run-evidence.mjs` asserts that this element's bounding rect does not intersect the
+ * send button's, so the rule fails loudly rather than being rediscovered by a user. */
+.swy-health {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  right: 16px;
+  bottom: 96px;
+  max-width: 320px;
+  padding: 7px 10px;
+  border: 1px solid rgba(100, 116, 139, 0.28);
+  border-radius: 10px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.4;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.1);
+  pointer-events: auto;
+}
+
+.swy-health__dismiss {
+  all: unset;
+  padding: 0 4px;
+  border-radius: 6px;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.swy-health__dismiss:hover,
+.swy-health__dismiss:focus-visible {
+  background: rgba(255, 255, 255, 0.8);
+  color: #334155;
+}
+
+/* ---------------------------------------------------------------------------
+ * Motion
+ * ------------------------------------------------------------------------- */
+
+@keyframes swy-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .swy-banner {
+    --swy-transition: 1ms linear;
+    animation: none;
+  }
+}

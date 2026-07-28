@@ -2,6 +2,7 @@ import { Avatar } from './components/Avatar/Avatar';
 import { AvatarDebugGrid } from './components/Avatar/AvatarDebugGrid';
 import { ChatWindow } from './components/ChatWindow';
 import { MessageInput } from './components/MessageInput';
+import { NudgeBanner } from './components/NudgeBanner';
 import { useChat } from './hooks/useChat';
 
 export default function App() {
@@ -14,6 +15,8 @@ export default function App() {
     avatarMessageId,
     avatarMood,
     avatarAnalysisStatus,
+    nudgeHeatScore,
+    nudgeRewriteSuggestion,
   } = useChat();
 
   // TEMPORARY — Phase 4 Step 2. Remove together with AvatarDebugGrid.
@@ -39,6 +42,17 @@ export default function App() {
       <main className="flex flex-1 flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white/70 p-4 shadow-lg backdrop-blur">
         <ChatWindow messages={messages} />
         <div className="mt-4">
+          {/* Sits directly above the compose box rather than in the transcript: the
+              nudge is about the next thing you type, not a footnote on the last one.
+              The extension places its overlay in the same relationship to WhatsApp's
+              compose box, for the same reason. */}
+          <NudgeBanner
+            messageId={avatarMessageId}
+            analysisStatus={avatarAnalysisStatus}
+            mood={avatarMood}
+            heatScore={nudgeHeatScore}
+            rewriteSuggestion={nudgeRewriteSuggestion}
+          />
           <MessageInput
             value={input}
             onChange={setInput}

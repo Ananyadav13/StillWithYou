@@ -136,6 +136,9 @@ export function useChat() {
   // The avatar reflects the message the user most recently sent — that is the one they
   // are being given a second opinion on. It reads the same polled state the message list
   // renders from, so there is no separate fetch and no way for the two to disagree.
+  //
+  // The nudge banner reads the same row, for the same reason: the face and the banner
+  // are two views of one analysis result, so they cannot contradict each other.
   const latestMessage = messages.length > 0 ? messages[messages.length - 1] : undefined;
 
   return {
@@ -147,5 +150,7 @@ export function useChat() {
     avatarMessageId: latestMessage?.id ?? null,
     avatarMood: latestMessage?.mood ?? null,
     avatarAnalysisStatus: latestMessage?.analysisStatus ?? null,
+    nudgeHeatScore: latestMessage?.heatScore ?? null,
+    nudgeRewriteSuggestion: latestMessage?.rewriteSuggestion ?? null,
   };
 }

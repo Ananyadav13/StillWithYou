@@ -1,0 +1,79 @@
+/* Nudge banner palette.
+ *
+ * Layout is Tailwind, like the rest of the app. The *colours* live here on purpose:
+ * these exact values are what `extension/banner.css` reproduces, and keeping them in
+ * one small block makes that port checkable by diff rather than by memory. If a value
+ * changes here it changes there.
+ *
+ * Both tones are lifted directly from Avatar.css so the banner and the face cannot
+ * disagree about what `frustrated` and `angry` look like:
+ *
+ *     tone         accent     surface    (Avatar.css --accent / --face-fill)
+ *     frustrated   #d0964e    #fdf5e9
+ *     angry        #c4705e    #fbeeea
+ *
+ * The angry tone inherits the avatar's restraint rule, and for the same measured
+ * reason: `angry` is detected correctly 6 times in 15. So angry is one muted step past
+ * frustrated in the SAME vocabulary — a slightly deeper clay accent, nothing else. It
+ * adds no device frustrated does not also use: no red, no flash, no pulse, no icon
+ * change, no size change, no sound, no shake. A banner that looks like an alarm would
+ * be asserting a confidence the pipeline does not have, in the moment the user is
+ * least able to second-guess it.
+ *
+ * #c4705e is a muted clay rather than an alert red because red is the colour the eye
+ * reads as a verdict, and this banner is explicitly not a verdict.
+ */
+
+.nudge {
+  /* Defaults are the frustrated tone; the angry block below overrides the two values
+   * that differ. Same "states change values, never shapes" pattern as Avatar.css. */
+  --nudge-accent: #d0964e;
+  --nudge-surface: #fdf5e9;
+  --nudge-border: rgba(208, 150, 78, 0.38);
+
+  --nudge-transition: 220ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  background: var(--nudge-surface);
+  border: 1px solid var(--nudge-border);
+  transition: background var(--nudge-transition), border-color var(--nudge-transition);
+}
+
+.nudge[data-tone='angry'] {
+  --nudge-accent: #c4705e;
+  --nudge-surface: #fbeeea;
+  --nudge-border: rgba(196, 112, 94, 0.38);
+}
+
+.nudge__mark {
+  background: var(--nudge-accent);
+  transition: background var(--nudge-transition);
+}
+
+.nudge__label {
+  color: var(--nudge-accent);
+  transition: color var(--nudge-transition);
+}
+
+/* Entry is a short fade and a 4px rise — enough to be noticed without being an
+ * animation the user has to wait out. It does not repeat and it does not loop. */
+.nudge {
+  animation: nudge-enter 180ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes nudge-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nudge {
+    --nudge-transition: 1ms linear;
+    animation: none;
+  }
+}
