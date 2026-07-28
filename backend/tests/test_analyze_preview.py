@@ -20,6 +20,7 @@ from app.core.db import SessionLocal
 from app.core.metrics import reset as reset_metrics
 from app.main import app
 from app.models.message import Message
+from app.routers.preview import load_preview_model
 from app.services import cache as cache_module
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
@@ -144,6 +145,64 @@ async def test_preview_rejects_empty_and_oversized_content(client):
     assert (
         await client.post("/analyze-preview", json={"content": "x" * 4001})
     ).status_code == 422
+
+
+async def test_model_loads_eagerly_and_reports_ready():
+    """The cold-start fix: startup loads the model and says so.
+
+    Before this, loading ran on a background thread while the server accepted traffic,
+    and the first request timed out at the client's 3s deadline while /health still
+    answered `ok`. Measurements in `load_preview_model`'s docstring.
+
+    This asserts the contract rather than the timing — the timing lives in
+    `scripts/measure_cold_start.py`, because a wall-clock assertion on a 30s model load
+    would be a flaky test on a shared laptop.
+    """
+    state = await load_preview_model()
+
+    assert state == "ready"
+    # The load is idempotent and cheap once warm — `lifespan` running twice (reload,
+    # test re-entry) must not cost a second 30s load or a second 1.1GB.
+    assert await load_preview_model() == "ready"
+
+
+async def test_model_load_reports_disabled_when_preview_is_off(monkeypatch):
+    """`PREVIEW_ENABLED=false` must skip the load entirely, not just hide the endpoint.
+
+    The 1.1GB and the ~30s boot are the whole reason the off-switch exists; loading
+    anyway and only 404ing the route would pay the cost and deliver none of the benefit.
+    """
+    monkeypatch.setattr(settings, "preview_enabled", False)
+
+    assert await load_preview_model() == "disabled"
+
+
+async def test_health_reports_the_model_state(client):
+    """/health distinguishes ready from unavailable.
+
+    A flat `{"status": "ok"}` was actively misleading during the cold-start bug: it was
+    the only observable signal and it said "fine" throughout. `unavailable` is the case
+    that matters, because `analyze_multilingual` silently degrades to the Phase 2 lexicon
+    rather than failing — so a broken model is invisible without this field.
+    """
+    client._transport.app.state.preview_model = "ready"
+    body = (await client.get("/health")).json()
+    assert body == {"status": "ok", "preview_model": "ready"}
+
+    client._transport.app.state.preview_model = "unavailable"
+    assert (await client.get("/health")).json()["preview_model"] == "unavailable"
+
+
+async def test_health_survives_state_never_being_set(client):
+    """Lifespan not having run must not 500 the health check — ASGITransport in these
+    very tests is one such caller, and so is any future in-process embedding."""
+    if hasattr(client._transport.app.state, "preview_model"):
+        delattr(client._transport.app.state, "preview_model")
+
+    response = await client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json()["preview_model"] == "unknown"
 
 
 async def test_preview_404s_when_disabled(monkeypatch, client):

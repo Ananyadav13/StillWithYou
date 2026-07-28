@@ -83,8 +83,28 @@ def _load() -> tuple[object, object, dict[int, str]]:
 def warm() -> None:
     """Force the load now instead of inside the first job. Phase 2 learned this the
     hard way with Gemini: a cold dependency initialised inside a request can block
-    for far longer than the work it is doing."""
+    for far longer than the work it is doing.
+
+    Loading the weights is not sufficient on its own. The first forward pass through a
+    freshly-constructed torch model costs far more than steady state — Phase 3 measured
+    469.6ms against a 40ms median — because that is when lazy kernel selection, memory
+    arenas and thread pools actually initialise. Loading eagerly but not running an
+    inference just moves the cold start one layer down: measured at 403ms server-side on
+    the first request against 146ms on the second, with the weights already resident.
+
+    So warm-up runs one throwaway inference. The text is a fixed ASCII string and the
+    result is discarded; nothing about `analyze_multilingual`'s per-call behaviour
+    changes, and no caller can observe that this ran.
+
+    Failure is swallowed: a warm-up that cannot run is not a reason to refuse to serve,
+    since `analyze_multilingual` has its own fallback and would simply pay the cost on
+    the first real call — which is exactly the pre-fix behaviour, not a new failure.
+    """
     _load()
+    try:
+        _sentiment("warm up")
+    except Exception:  # noqa: BLE001 - see docstring
+        pass
 
 
 # ---------------------------------------------------------------------------

@@ -213,4 +213,25 @@ frontend/src
     profiling (0.400ms median commit; a reduced-motion ablation locates the frame cost
     in repaint, not React)
   - 3s client-side deadline so a stalled analysis can never leave a spinner running
-- **Next** — surface `rewrite_suggestion`, a frontend test runner, browser extension
+- **Phase 5 — WhatsApp Web extension** 🟡 *proof of concept*
+  - Manifest V3 content script that reads the compose box and shows a nudge overlay —
+    **read-only**: it never writes to the compose box, never touches WhatsApp's send,
+    and never reads the transcript
+  - Built around the fact that WhatsApp's DOM is unversioned and *will* break it:
+    fallback selector chains, persisted failure counters, and a visible
+    "couldn't attach" indicator, because an absent warning must never read as calm
+  - `POST /analyze-preview` — same analysis path, writes no row and enqueues no job
+  - Three failure modes verified (DOM changed / backend down / backend slow, aborting at
+    a measured 3017ms); 50/50 checks in a headless-Chrome harness
+  - Found and fixed its own cold-start bug: the model loaded on a background thread while
+    the server accepted traffic, so the first request after any restart timed out at 3s
+    while `/health` still answered `ok`. Now loaded during `lifespan` before the socket
+    opens — first request **200ms server-side**, boot-to-ready **~33s**, and that trade
+    is the point: a visible one-time cost for the operator beats a hidden one for the
+    first user
+  - **Not published, not submitted to the Chrome Web Store, not distributed.** Local
+    unpacked only. Three real-site captures still outstanding — see
+    [`docs/phase5-scope.md`](docs/phase5-scope.md)
+  - Also added the main app's first `NudgeBanner`, which is where `heat_score` and
+    `rewrite_suggestion` finally get displayed
+- **Next** — a frontend test runner, conversational context, the poll-loop retry fix

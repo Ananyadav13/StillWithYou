@@ -7,9 +7,11 @@ language model being given the project as background.
 
 **Repository:** `github.com/Ananyadav13/StillWithYou`
 **Author:** Ananya
-**Status as of 2026-07-28:** Phases 1–4 complete, 21 passing tests. Phase 4 (the mood
-avatar) is built, wired to real pipeline output and measured; it is a presentation layer
-only and changed no backend code.
+**Status as of 2026-07-28:** Phases 1–4 complete plus a Phase 5 proof of concept, 33
+passing tests. Phase 4 (the mood avatar) is built, wired to real pipeline output and
+measured; it is a presentation layer only and changed no backend code. Phase 5 is a
+read-only WhatsApp Web extension, unpublished and undistributed, with three real-site
+captures still outstanding.
 **Last updated:** 2026-07-28
 
 ---
@@ -355,7 +357,7 @@ viable rather than byte-fallback noise, and it is precisely where the alternativ
 | Metric | Value |
 |---|---|
 | Model size on disk | 1117.3 MB |
-| Cold load, fresh process | 8.22s (7078ms inside the worker) |
+| Cold load, fresh process | 8.22s (7078ms inside the worker) — **see the correction below** |
 | First inference | 469.6ms (one-off warm-up) |
 | Steady-state inference, n=20 | **median 40.0ms**, p95 49.4ms |
 | End-to-end, POST → `complete` | 422–636ms |
@@ -602,7 +604,9 @@ Postgres, Redis, uvicorn and the ARQ worker.
 | Gemini, healthy, `thinking_level="low"` | median 1410ms, 5/5 under 2s |
 | Gemini, default thinking level | 6.0–12.6s, 0/5 under 2s, one 30s timeout |
 | Gemini, after recovery (2026-07-28) | 2050–2154ms |
-| Model cold load | 8.22s standalone, 7078ms in worker |
+| Model cold load, idle machine | 8.22s standalone, 7078ms in worker |
+| Model cold load, **real working set** | **27.6–34.0s** (33.9s online vs 24.9s `HF_HUB_OFFLINE=1`) |
+| API boot-to-ready, model loaded eagerly | 32.1–34.2s |
 
 ### Accuracy
 
@@ -621,7 +625,7 @@ Postgres, Redis, uvicorn and the ARQ worker.
 | | |
 |---|---|
 | Commits | 19 across Phases 1–3; Phase 4 uncommitted at time of writing |
-| Tests | 21 passing, all backend (Phase 4 adds none — see §14) |
+| Tests | 33 passing, all backend (Phase 4 adds none — see §14; Phase 5 adds 12) |
 | Application code | 3,825 lines (Python + TypeScript) |
 | Documentation | ~21,000 words across 8 documents |
 | Evaluation corpus | 45 hand-written messages |
@@ -631,11 +635,11 @@ Postgres, Redis, uvicorn and the ARQ worker.
 
 ## 11. Testing strategy
 
-**21 tests in three suites**, all exercising real Postgres and real Redis rather than
+**33 tests in four suites**, all exercising real Postgres and real Redis rather than
 mocks — because the properties under test (atomicity, shared state, persistence) are
 properties *of* those systems, and a mock would only assert that the mock works.
 
-**All 21 are backend.** The frontend has no test runner configured, so Phase 4's avatar
+**All 33 are backend.** The frontend has no test runner configured, so Phase 4's avatar
 is covered by captured evidence — scripted runs against the live backend, reading state
 from the DOM rather than from a screenshot — rather than by assertions that re-run. That
 is weaker and is listed as a limitation in §14.
@@ -837,11 +841,18 @@ numbers speaks to it either way.
 Apache-2.0 finding comes from the authors' source repository. Fine for a personal build,
 unresolved for a commercial one.
 
-**The frontend renders `mood` only.** Phase 4 puts the mood on screen as the avatar, but
-`toxicity_score`, `heat_score` and `rewrite_suggestion` are still received and not
-displayed. The rewrite suggestion is the valuable one — it is the part that would tell a
-sender *what* makes a message land hard — and it deserves its own phase rather than a
-caption bolted to a face.
+**~~The frontend renders `mood` only.~~ Closed by Phase 5.** The `NudgeBanner` added in
+Phase 5 renders `heat_score` (above a threshold of 0.35) and uses `rewrite_suggestion` as
+its body text — the part that tells a sender *what* makes a message land hard.
+`toxicity_score` remains fetched and undisplayed, deliberately: it measures cruelty
+rather than escalation, and the banner is about escalation.
+
+**The nudge threshold is not held-out.** 0.35 was chosen by sweeping the same 45-message
+corpus this document already calls small, so it inherits every one of that corpus's
+limitations. It was deliberately *not* set to the fitted optimum of 0.23 — whose margin
+over the highest-scoring calm fixture is a single fixture — and it is biased to
+under-warn, firing on 15 of 27 heated fixtures and none of the 18 calm ones. Real typing
+will not separate as cleanly as a corpus whose calm messages are unambiguously calm.
 
 **Phase 4 has no automated tests.** Its evidence is real — scripted runs against the live
 backend, with state read from the DOM rather than from screenshots — but it is captured
@@ -883,10 +894,9 @@ config-gated off. Turning it on is `GEMINI_ENABLED=true` — a config flip, by d
 The open question is whether accuracy that has never been measured on this corpus should
 displace accuracy that has, at 50× the latency.
 
-**Surface the rewrite suggestion.** Phase 4 put `mood` on screen; the analyzer has also
-been producing a `rewrite_suggestion` since Phase 1 and nothing shows it. That is the
-field that does the actual coaching, and it is the clearest remaining gap between
-"working system" and "usable product".
+**~~Surface the rewrite suggestion.~~ Done in Phase 5**, as the body text of the new
+`NudgeBanner`. A banner that said only "this reads as heated" would be a verdict with no
+reasoning attached, which is the thing the product exists not to be.
 
 **Fix the poll loop's retry behaviour.** Phase 4 contained the symptom of
 `pollAnalysis` abandoning a message on a transient fetch error; the cause is untouched
@@ -895,7 +905,11 @@ and wants a bounded retry with backoff.
 **A frontend test runner.** There is none, which is why Phase 4 shipped with captured
 evidence instead of assertions.
 
-**Later phases:** a browser extension, still deliberately untouched.
+**~~Later phases: a browser extension.~~ Built in Phase 5 as a proof of concept** — a
+Manifest V3 extension for WhatsApp Web, read-only, unpublished and undistributed. Scope
+and evidence in [`phase5-scope.md`](phase5-scope.md). Three of its DONE WHEN criteria
+need a logged-in browser session and are still outstanding; the substantive one is
+whether its selectors match today's real WhatsApp DOM, which no local test can answer.
 
 ---
 

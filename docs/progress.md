@@ -22,10 +22,16 @@ and development, is in [`docs/prompts.md`](prompts.md).
 | Phase 2 — resilience layer | ✅ Steps 0–10 done, deferred item now closed |
 | Phase 3 — multilingual (en / hi / hi-en-mixed) | ✅ Steps 0–11 done, one known limitation |
 | Phase 4 — 2D mood avatar | ✅ Steps 0–7 done, presentation layer only, no backend change |
+| Phase 5 — WhatsApp Web extension | 🟡 Proof of concept. Code complete, backend + fixture evidence done; three real-site captures outstanding |
 
 **Everything runs.** Postgres, Redis and Prometheus are in compose; the API, the
-ARQ worker and the frontend all start clean; **21 tests pass** (5 Phase 2
-failure-injection, 6 cache-key, 10 Phase 3 regression).
+ARQ worker and the frontend all start clean; **33 tests pass** (5 Phase 2
+failure-injection, 6 cache-key, 10 Phase 3 regression, 12 Phase 5 preview-endpoint and
+startup).
+
+**Note the API now takes ~32-34s to become ready**, because the multilingual model loads
+during startup rather than behind the first request. That is deliberate — see the
+cold-start fix in the Phase 5 section.
 
 **The Phase 2 deferred item is closed.** Step 3's DONE WHEN asked to see
 `pending → complete` with a result sourced from Gemini. That was observed end-to-end
@@ -395,9 +401,10 @@ is OPEN.
   [`prompts.md`](prompts.md).
 - Cache lookup is wasted work while the circuit is OPEN (see above).
 - No single-flight: duplicate concurrent sends each do full work.
-- The frontend renders `mood` (as the Phase 4 avatar) but still shows nothing for
-  `toxicity_score`, `heat_score` or `rewrite_suggestion`. The rewrite suggestion is the
-  valuable one and deserves its own phase rather than a caption bolted to the avatar.
+- ~~The frontend renders `mood` only.~~ **Closed by Phase 5.** The `NudgeBanner` now
+  renders `heat_score` (above 0.35) and `rewrite_suggestion` as its body text.
+  `toxicity_score` is still fetched and displayed nowhere — deliberately, since it
+  measures cruelty rather than escalation and the banner is about the latter.
 - **`pollAnalysis` abandons a message permanently on a single failed fetch — contained
   by Phase 4 Step 6, root cause still unfixed.** In `useChat.ts` the `catch` around
   `getAnalysis` logs and `return`s without rescheduling the next tick and without moving
@@ -415,6 +422,142 @@ is OPEN.
   with backoff in the poll loop, which touches `useChat`'s core logic and is its own
   change. **Worth doing separately.** Do not let the working avatar disguise it.
 - Grafana was skipped as optional.
+
+## Phase 5 — WhatsApp Web extension (2026-07-28)
+
+Scope, risk statement and full evidence: [`phase5-scope.md`](phase5-scope.md).
+Harness output: [`phase5-evidence.txt`](phase5-evidence.txt).
+
+**Status: proof of concept, not a feature.** It is a local unpacked Chrome extension,
+loaded through developer mode from a checkout. **It is not published, not submitted to
+the Chrome Web Store, and not distributed.** It exists as a portfolio demonstration of
+how to build against a hostile integration surface, not as something anyone should
+install. Tested only against the author's own account and self-authored test messages;
+no real contact's messages were read or captured.
+
+### The read-only, non-destructive boundary
+
+> The extension **reads** the compose box's text and **adds** an overlay of its own. It
+> performs no other interaction with WhatsApp.
+
+It never writes to the compose box, never calls `preventDefault`, attaches no `keydown`
+handler at all, binds nothing to the send button, never patches `fetch`/XHR/WebSocket,
+never enters the page's main world, and never reads the message transcript. The banner
+is appended to `document.body` as a fixed overlay positioned from the compose box's
+bounding rect — never inserted into WhatsApp's tree — so it cannot shift their layout or
+be caught by their event delegation. `sendButton` is resolved as a health canary and
+**never bound**, with the constraint written next to it in `selectors.js`, because that
+is the file where someone would cross the line without noticing.
+
+### The three failure modes handled
+
+1. **WhatsApp's DOM changes.** Fallback selector chains, structured `selector_failed`
+   logging, a persisted counter in `chrome.storage.local`, `null` instead of throwing,
+   and a visible *"StillWithYou couldn't attach — WhatsApp may have updated"* indicator.
+   Verified by breaking every rung of the compose-box chain: no crash, indicator shown,
+   failure counted, WhatsApp's own send still working; then reverted and green again.
+2. **Backend unreachable.** Silent from WhatsApp's side — no banner, no indicator,
+   nothing added to the page, one logged line. Verified against a dead port.
+3. **Backend slow.** `AbortController` deadline at 3s, aborting at a measured **3017ms**
+   against a server answering at 6s. Not hypothetical: a cold API process pays the
+   model's 8.22s load, and the first request during that window measured **3.50s**.
+
+This one is loud and the other two are silent, deliberately. A broken selector means the
+extension is silently useless, and silence would be read as "your message is fine" — an
+absent warning must never be mistakable for a verdict of calm. A down backend is not
+something the user can act on, and on a dev machine it is the normal state.
+
+### What this phase added outside the extension
+
+- **A real `NudgeBanner` in the main app.** The brief assumed one existed to port; it did
+  not — `heat_score` had been fetched into frontend state since Phase 1 and rendered
+  nowhere. So this is the first thing in the project to display it, and the component
+  lives in the React app with the extension's overlay as the port, rather than the other
+  way round. Threshold `0.35`, justified from a measured sweep over all 45 fixtures in
+  `frontend/src/config/nudge.ts`, deliberately **not** set to the fitted optimum of 0.23
+  (whose margin over the highest calm fixture is one fixture) and biased to under-warn.
+- **`POST /analyze-preview`** — same analysis path, writes no row and enqueues no job.
+  The extension analyses on a typing pause, so reusing `POST /messages` would leave
+  several partial drafts of every WhatsApp message in the database. 8 new tests.
+
+### Two things worth being honest about
+
+**The extension is a worse citizen of the backend than the main app is.** The main app
+does not debounce — it analyses on send only, and the comment on `sendMessage` argues
+explicitly against debouncing. The extension cannot copy that, because knowing when the
+user sends means listening on the send button or Enter, which its own boundary forbids.
+So the ~1.5s debounce is a *departure*, not an imitation, costing roughly one extra
+request per typing pause. It is affordable only because the analyzer is 40ms and nothing
+is persisted.
+
+**`/analyze-preview` breaks the project's central rule on purpose.** Analysis runs
+synchronously in the request path, which `POST /messages` may never do. The justification
+is recorded in the module docstring: Gemini is never called from it regardless of
+`GEMINI_ENABLED`, the analyzer is 40ms rather than 1410ms, nothing is persisted so there
+is no message to protect, and the caller holds a 3s deadline. A test asserts the Gemini
+part rather than trusting it.
+
+### Cold-start fix — the risk this phase found, then closed
+
+**The risk.** `/analyze-preview` runs the multilingual model in the API process, and the
+model was loaded on a background thread at startup so boot would stay fast. That put the
+load in a race with real traffic. Measured on a fresh process with an immediate request:
+the socket opened at **5.3s**, the model was not resident until **34.0s**, and the first
+request **timed out at the extension's 3s client deadline**. Worse, `/health` answered a
+flat `{"status": "ok"}` for the whole window — the only readiness signal there was, and
+it said "fine" while the endpoint was unusable.
+
+This is the trade Phase 2 rejected for Gemini, made again by accident: a fast boot bought
+by charging the cost to whichever real request arrived first.
+
+**Two corrections to the recorded numbers.** The documented **8.22s load was wrong by
+4×** — it came from a standalone process on an idle machine, and re-measured against the
+real working set (Postgres, Redis, Prometheus, a second uvicorn, a browser) it is
+**27.6–34.0s**. About 9s of that is a network metadata check to huggingface.co: **33.9s
+online against 24.9s with `HF_HUB_OFFLINE=1`**. That flag is a genuine ~9s saving and is
+deliberately **not** set, because it would break the first run on a machine without the
+model cached — recorded as a follow-up rather than taken quietly.
+
+**What changed.** `load_preview_model()` is awaited from `lifespan` (the app already used
+the lifespan context manager; `@app.on_event` is deprecated in the installed FastAPI
+0.115.0). Verified rather than assumed: **uvicorn does not open the listening socket
+until lifespan startup returns** — the port now accepts at 34.2s, after
+`preview_model_ready`, where before it accepted at 5.3s with the load still running. So
+during boot a caller gets an immediate connection refusal rather than a hang, which is
+the extension's already-silent `unreachable` path. It loads via `asyncio.to_thread` so
+Ctrl+C still works during a 30s boot, and a failed load is logged and swallowed rather
+than aborting startup.
+
+**The first attempt was incomplete, which is the part worth remembering.** Eager loading
+alone still left request #1 at 403ms server-side against 146ms for #2. Loading weights is
+not the whole cold start — the first forward pass initialises lazy kernels and thread
+pools, which Phase 3 had already measured as a 469.6ms one-off. `warm()` had never run an
+inference, so the cold start had just moved one layer down. It now runs one throwaway
+inference; per-call logic in `analyze_multilingual` is untouched.
+
+**After:** first request **200ms server-side** against 164ms and 196ms for the next two —
+indistinguishable from steady state, roughly 3× margin on the deadline. `/health` now
+reports `preview_model` as `ready` / `unavailable` / `disabled` instead of a flat `ok`;
+`unavailable` is the one worth alerting on, because `analyze_multilingual` silently
+degrades to the Phase 2 lexicon and a broken model is otherwise invisible.
+
+**The tradeoff, stated plainly:** boot-to-ready goes from ~5.3s to **32.1–34.2s**, and
+that is accepted. A slow, visible, once-per-restart cost paid by the operator beats a
+hidden one paid by whichever user happened to be first — and it is now observable rather
+than inferred. `PREVIEW_ENABLED=false` skips the load entirely, asserted by a test.
+
+Re-runnable: `backend/scripts/measure_cold_start.py`. Regression: **33 tests pass**
+(29 + 4 for the startup contract), with the Phase 3 floors unmoved at `angry 6/15`,
+`32/45` — the fix touches when the model is built, never how it is used.
+
+### Still outstanding
+
+Three DONE WHEN criteria need a logged-in WhatsApp Web session and are **not** claimed as
+done: that the manifest loads on the real site (Step 1), that the selectors match
+*today's* real DOM (Step 3), and how the banner sits over a real conversation (Step 5).
+The fixture harness proves the extension's own logic — 50/50 checks against the real
+sources and the real backend — but a fixture is a copy of a moving target and cannot
+prove the copy is current. Capture procedure in `phase5-scope.md`.
 
 ## Conventions
 

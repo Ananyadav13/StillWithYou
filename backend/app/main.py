@@ -7,7 +7,7 @@ from app.core.config import settings
 from app.core.logging import configure_logging, log_event
 from app.core.queue import close_pool, get_pool
 from app.routers import chat, health, metrics, preview
-from app.routers.preview import warm_preview_model
+from app.routers.preview import load_preview_model
 from app.services.gemini import GeminiError, get_client
 
 configure_logging()
@@ -34,15 +34,29 @@ async def lifespan(app: FastAPI):
     except Exception as exc:  # noqa: BLE001 - the API must serve even if Redis is down
         log_event("queue_pool_unavailable", level=40, error=f"{type(exc).__name__}: {exc}")
 
-    # Phase 5: the extension's preview endpoint runs the model in *this* process, and a
-    # cold load costs 8.22s — long enough to blow the extension's 3s client deadline and
-    # look exactly like the backend being down. Warmed on a background thread rather than
-    # awaited, so the API still starts immediately for everything else.
-    if settings.preview_enabled:
-        warm_preview_model()
-        log_event("preview_warm_started")
+    # Phase 5: the extension's preview endpoint runs the multilingual model in *this*
+    # process. This load is AWAITED on purpose — it is the last thing before `yield`, and
+    # uvicorn does not open the listening socket until lifespan startup returns, so the
+    # model is resident before any request can arrive.
+    #
+    # It was previously started on a background thread so boot would stay fast. That was
+    # wrong, and measurably so: the model finished loading 34.0s in, while the socket
+    # opened at 5.3s, so a request arriving in between blocked past the caller's 3s
+    # deadline and timed out — and `/health` answered `ok` throughout. The cost of fixing
+    # it is that boot now takes as long as the load; the benefit is that the cost is
+    # paid once, by the operator, visibly, instead of by whichever user happened to be
+    # first. `docs/phase5-scope.md` has the before/after numbers.
+    #
+    # A failed load does not abort startup: the rest of the API has nothing to do with
+    # this model, and `analyze_multilingual` degrades to the Phase 2 lexicon on its own.
+    app.state.preview_model = await load_preview_model()
 
-    log_event("startup", app=settings.app_name, environment=settings.environment)
+    log_event(
+        "startup",
+        app=settings.app_name,
+        environment=settings.environment,
+        preview_model=app.state.preview_model,
+    )
     yield
     await close_pool()
     log_event("shutdown", app=settings.app_name)

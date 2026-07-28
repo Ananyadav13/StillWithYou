@@ -41,16 +41,18 @@ something about.
 
 Cold start
 ----------
-The model lives in the worker process today; the first call in a cold API process pays
-the full 8.22s load, which would blow the client's 3s deadline and be indistinguishable
-from the backend being down. `warm_preview_model()` is therefore kicked off during
-startup, on a background thread so it does not delay the API becoming ready. The honest
-price of this endpoint is ~1.1GB resident in the API process, and it is opt-out via
-`PREVIEW_ENABLED=false`.
+The model lives in the worker process too, but this endpoint needs its own copy in the
+API process. `load_preview_model()` is awaited from `lifespan`, so the load completes
+**before uvicorn opens the listening socket** — the first request after a restart pays
+nothing. See that function's docstring for the measurements that forced this, including
+the version of it that loaded on a background thread and left the first caller to absorb
+a 3s timeout while `/health` reported `ok`.
+
+The honest price of this endpoint is ~1.1GB resident in the API process plus that load
+time added to every boot, and it is opt-out via `PREVIEW_ENABLED=false`.
 """
 
 import asyncio
-import threading
 import time
 
 from fastapi import APIRouter, HTTPException, status
@@ -92,28 +94,68 @@ class PreviewResponse(BaseModel):
     cached: bool
 
 
-def warm_preview_model() -> None:
-    """Load the model off the request path, on a background thread.
+async def load_preview_model() -> str:
+    """Load the model during startup, before the server accepts any traffic.
 
-    Startup must not block on this: an 8.22s load in `lifespan` would delay the API
-    accepting *any* traffic, including the endpoints that have nothing to do with
-    previews. Failure here is logged and otherwise ignored — `analyze_multilingual`
-    degrades to the lexicon on its own if the model never arrives.
+    This is awaited from `lifespan`, so uvicorn does not open the listening socket until
+    it returns. That is the whole fix, and it is worth being precise about what it buys.
+
+    THE BUG IT REPLACES
+    -------------------
+    This used to run on a daemon thread so startup would not block. The model then loaded
+    *concurrently with serving*, which produced the worst of both worlds — measured on a
+    fresh process with an immediate request:
+
+        boot -> port accepts TCP          5286 ms
+        GET  /health                       696 ms   {"status": "ok"}   <- claimed ready
+        POST /analyze-preview  #1         3030 ms   <- TIMED OUT at the client deadline
+        POST /analyze-preview  #2        31752 ms   <- waited out the load
+        preview_model_ready              34004 ms
+
+    Two separate defects. The endpoint blocked past the caller's 3s deadline, and
+    `/health` answered `ok` the entire time — so nothing observable distinguished "still
+    warming up" from "broken", and the first real user absorbed the difference.
+
+    Loading here inverts that. During the load the port is simply not open, so a caller
+    gets an immediate connection refusal rather than a hang. For the extension that is
+    the `unreachable` branch, which is already specified to fail silently: no banner, one
+    logged line, nothing shown to a WhatsApp user. A closed port is a far more honest
+    signal than a `/health` that says ok while the thing it depends on is missing.
+
+    THE COST
+    --------
+    Boot-to-ready grows by the full load. That is a real trade and it is taken
+    deliberately: a slow, visible, once-per-restart cost paid by the operator beats a
+    hidden one paid by whichever request happened to arrive first.
+
+    Failure is logged and swallowed rather than aborting startup. `analyze_multilingual`
+    degrades to the Phase 2 lexicon on its own if the model never arrives, and the rest
+    of the API — `POST /messages`, the poll endpoint, `/metrics` — has nothing to do with
+    this model and must not be taken down by it.
+
+    @returns one of "ready" | "unavailable" | "disabled", for /health to report.
     """
+    if not settings.preview_enabled:
+        log_event("preview_model_skipped", reason="preview_disabled")
+        return "disabled"
 
-    def _run() -> None:
-        started = time.perf_counter()
-        try:
-            warm_multilingual()
-            log_event("preview_model_ready", elapsed_ms=round((time.perf_counter() - started) * 1000, 1))
-        except Exception as exc:  # noqa: BLE001 - a cold model must not break startup
-            log_event(
-                "preview_model_warm_failed",
-                level=40,
-                error=f"{type(exc).__name__}: {exc}"[:200],
-            )
-
-    threading.Thread(target=_run, name="preview-warm", daemon=True).start()
+    started = time.perf_counter()
+    try:
+        # In a thread, not inline: this is 25-34s of blocking CPU and I/O, and running it
+        # directly on the event loop would make the process ignore Ctrl+C for the whole
+        # load. The loop stays responsive; the startup sequence still waits.
+        await asyncio.to_thread(warm_multilingual)
+        elapsed = round((time.perf_counter() - started) * 1000, 1)
+        log_event("preview_model_ready", elapsed_ms=elapsed, blocking_startup=True)
+        return "ready"
+    except Exception as exc:  # noqa: BLE001 - a cold model must not break the whole API
+        log_event(
+            "preview_model_load_failed",
+            level=40,
+            elapsed_ms=round((time.perf_counter() - started) * 1000, 1),
+            error=f"{type(exc).__name__}: {exc}"[:200],
+        )
+        return "unavailable"
 
 
 @router.post("/analyze-preview", response_model=PreviewResponse)
