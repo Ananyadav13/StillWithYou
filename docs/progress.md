@@ -698,6 +698,23 @@ genuine Gemini outage.
 `host_permissions` with the extension actually loaded. Everything above runs
 `config_source.js` as the service worker would, but outside the extension sandbox.
 
+**A mistake worth recording.** Mid-session I ran `git checkout extension/selectors.js`
+to undo a bad codegen, forgetting the file's remote-config changes were uncommitted —
+which destroyed them. There was no editor history (the file had never been opened in the
+IDE). Recovery was by reconstruction, verified by the harnesses rather than by reading:
+61/61, 45/45, and both live checks green afterwards. The real lesson is not "be careful
+with checkout" but that **the harnesses were the thing that made reconstruction
+trustworthy** — without them, "it looks right" would have been the only available check.
+
+That reconstruction also exposed a genuinely bad test. The deliberate-break test broke
+the selectors by regex-replacing single-quoted strings in `selectors.js` source. The
+rebuilt frozen snapshot is JSON-formatted with double quotes, so the regex silently
+matched nothing, the break was never applied, and seven assertions passed against a
+perfectly healthy extension **for the wrong reason**. It now breaks the config through
+`install()` — the same entry point the remote config uses — which cannot silently no-op.
+A test whose setup can quietly become a no-op is worse than no test, because it reports
+success.
+
 ### Two real bugs found by the first live WhatsApp Web test
 
 Worth recording because both were invisible to the fixture harness and only appeared

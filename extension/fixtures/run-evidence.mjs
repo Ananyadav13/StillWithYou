@@ -147,19 +147,28 @@ async function makePage(browser, { breakSelector = false, configBridge = null } 
   await page.addStyleTag({ content: read('banner.css') });
   await page.addScriptTag({ content: read('config.js') });
 
-  let selectorsSource = read('selectors.js');
+  await page.addScriptTag({ content: read('selectors.js') });
+
   if (breakSelector) {
-    /* THE DELIBERATE BREAK. Every rung of the composeBox chain is rewritten to a
-     * selector that is valid CSS and matches nothing - which is what a WhatsApp
-     * redesign looks like from here. The send-button chain is left intact so the
-     * report shows one target up and one down, the case the two-canary design exists
-     * for. */
-    selectorsSource = selectorsSource.replace(
-      /'footer div\[contenteditable="true"\]\[data-tab="10"\]',[\s\S]*?'div\[role="textbox"\]\[contenteditable="true"\]',/,
-      "'div.swy-deliberately-broken-selector',",
-    );
+    /* THE DELIBERATE BREAK. Every rung of the composeBox chain is replaced with a
+     * selector that is valid CSS and matches nothing - which is what a WhatsApp redesign
+     * looks like from inside the extension. The send-button chain is left intact so the
+     * report shows one target up and one down, the case the two-canary design exists for.
+     *
+     * Applied through `install()`, the same entry point the remote config uses, rather
+     * than by rewriting selectors.js source. An earlier version did the latter with a
+     * regex over single-quoted selector strings, and it silently stopped breaking
+     * anything the moment the frozen snapshot was regenerated as JSON with double quotes
+     * - the tests then asserted "no crash" against a perfectly healthy extension and
+     * passed for the wrong reason. A test whose setup can quietly no-op is worse than no
+     * test. This one cannot: install() either takes the config or logs a rejection. */
+    await page.evaluate(() => {
+      const broken = JSON.parse(JSON.stringify(window.SWY.selectors.FROZEN_CONFIG));
+      broken.targets.composeBox.selectors = ['div.swy-deliberately-broken-selector'];
+      broken.version = -1;
+      window.SWY.selectors.install(broken, 'remote', { reason: 'deliberate_break_test' });
+    });
   }
-  await page.addScriptTag({ content: selectorsSource });
 
   await page.addScriptTag({ content: read('remote_config.js') });
   await page.addScriptTag({ content: read('health_check.js') });
