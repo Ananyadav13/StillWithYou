@@ -25,7 +25,7 @@
 self.SWY = self.SWY || {};
 
 (function initHealthCheck() {
-  const { log } = self.SWY;
+  const { config, log } = self.SWY;
   const INDICATOR_ID = 'swy-health-indicator';
 
   /**
@@ -154,9 +154,35 @@ self.SWY = self.SWY || {};
    * identical lines and buried anything real. Only state CHANGES are logged. */
   let lastLoggedState = null;
 
-  /** Inspect, log on change, and show or clear the indicator. Returns the report. */
+  /* When the compose box first went missing while a conversation was open. The indicator
+   * waits DETACHED_GRACE_MS from this point - WhatsApp replaces the compose box node
+   * routinely, and a replacement gap is not an outage. */
+  let detachedSince = null;
+
+  /** Inspect, apply the grace period, log on change, show or clear the indicator. */
   function run(reason) {
     const report = inspect();
+
+    /* Grace period FIRST, before anything is logged or shown.
+     *
+     * `inspect()` reports the instantaneous truth; whether that truth has PERSISTED long
+     * enough to count as an outage is decided here. Doing it before the log matters -
+     * otherwise the console reports `detached` for episodes the indicator deliberately
+     * suppresses, which is exactly the kind of disagreement between what is logged and
+     * what is believed that makes a log untrustworthy.
+     *
+     * WhatsApp replaces the compose box node routinely (`compose_box_attached` recurs
+     * all session), and a replacement gap is not an outage. See DETACHED_GRACE_MS. */
+    if (report.state === 'detached') {
+      if (detachedSince === null) detachedSince = Date.now();
+      report.heldForMs = Date.now() - detachedSince;
+      if (report.heldForMs < config.DETACHED_GRACE_MS) {
+        report.state = 'detaching';
+        report.healthy = true;
+      }
+    } else {
+      detachedSince = null;
+    }
 
     if (report.state !== lastLoggedState) {
       log(
@@ -168,6 +194,7 @@ self.SWY = self.SWY || {};
           healthy: report.healthy,
           degraded: report.degraded,
           detail: report.reason,
+          held_for_ms: report.heldForMs,
           targets: report.targets,
         },
         report.healthy ? 'info' : 'warn',
@@ -175,19 +202,19 @@ self.SWY = self.SWY || {};
       lastLoggedState = report.state;
     }
 
-    /* Only `detached` earns the indicator. `idle` is normal and `attached` is working;
-     * showing it for either is the crying-wolf failure this design exists to avoid. */
+    /* Only a `detached` that survived the grace period earns the indicator. `idle` is
+     * normal, `attached` is working, and `detaching` is a node swap in progress -
+     * showing it for any of those is the crying-wolf failure this design exists to
+     * avoid. */
     if (report.state === 'detached') {
-      /* Record the incident HERE, on the transition into detached.
+      /* Record the incident here, on the transition into a BELIEVED outage.
        *
-       * `inspect()` above resolves with `record: false` because a reporter must not
-       * count itself as an outage. But nothing else records it either: when the state
-       * is detached, `content.js` skips `attach()`, so the recording path in
-       * `resolve()` is never reached and a genuine outage went uncounted and unlogged.
-       * The health check is the right owner anyway — it is the only thing that knows
-       * the difference between "compose box missing because the DOM moved" and
-       * "compose box missing because no chat is open". `resolve`'s own latch keeps this
-       * to one entry per transition. */
+       * `inspect()` resolves with `record: false` because a reporter must not count
+       * itself as an outage, and nothing else records it either: when the state is
+       * detached, `content.js` skips `attach()`, so the recording path in `resolve()` is
+       * never reached. The health check is the right owner anyway - it is the only thing
+       * that knows the difference between a DOM change, an unopened chat, and a node
+       * swap. `resolve`'s own latch keeps this to one entry per transition. */
       try {
         Object.keys(report.targets).forEach((name) => {
           if (!report.targets[name].found && self.SWY.selectors.TARGETS[name].critical) {

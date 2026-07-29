@@ -341,7 +341,13 @@ try {
     const { page, logs, pageErrors } = await makePage(browser);
     await page.addScriptTag({ content: read('content.js') });
     await sleep(900);
-    beforeState = await page.evaluate(() => window.SWY.health.inspect().state);
+    /* Zero the detached grace period. The indicator normally waits DETACHED_GRACE_MS
+     * because WhatsApp swaps the compose box node routinely and a swap is not an outage;
+     * here the config is genuinely broken and the point is to assert the outage path, so
+     * waiting 8s would only slow the run. The grace period has its own test in
+     * run-evidence.mjs (STEP 2b-ii), both directions. */
+    await page.evaluate(() => { window.SWY.config.DETACHED_GRACE_MS = 0; });
+    beforeState = await page.evaluate(() => window.SWY.health.run('post_break').state);
     const indicator = (await page.$('#swy-health-indicator')) !== null;
     console.log(`\n   BEFORE  config v${served.version}: health=${beforeState}, indicator=${indicator}`);
     check('extension is broken, as expected', beforeState === 'detached');

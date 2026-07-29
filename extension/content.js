@@ -48,6 +48,10 @@
   let lastAnalyzed = null;
   let inFlightFor = null;
 
+  /* Single-shot latch for the fragment trigger: true once this message has had its one
+   * provisional look. Cleared when the compose box empties, i.e. per message. */
+  let fragmentAnalysedForThisMessage = false;
+
   /* ---------------------------------------------------------------------------
    * Reading the draft.
    * ------------------------------------------------------------------------- */
@@ -65,9 +69,10 @@
     }
   }
 
-  function analyze(text) {
+  function analyze(text, options) {
     if (inFlightFor === text) return; /* Already asking about exactly this draft. */
     inFlightFor = text;
+    const provisional = Boolean(options && options.provisional);
 
     let settled = false;
     /* The service worker holds its own 3s deadline in api.js. This second one is not
@@ -113,6 +118,7 @@
 
         const analysis = result.analysis;
         log('analysis_result', {
+          provisional,
           mood: analysis.mood,
           heat_score: analysis.heat_score,
           toxicity_score: analysis.toxicity_score,
@@ -123,7 +129,7 @@
           over_threshold: analysis.heat_score >= config.HEAT_THRESHOLD,
         });
 
-        self.SWY.banner.render(text, analysis);
+        self.SWY.banner.render(text, analysis, { provisional });
       });
     } catch (error) {
       clearTimeout(guard);
@@ -163,6 +169,8 @@
        * longer exists. */
       self.SWY.banner.remove();
       lastAnalyzed = null;
+      /* New message starts fresh: it gets its own single provisional look. */
+      fragmentAnalysedForThisMessage = false;
       return;
     }
 
@@ -172,7 +180,43 @@
     analyze(text);
   }
 
+  /* Typing-time analysis.
+   *
+   * Runs on the input event, throttled, so it fires DURING continuous typing rather than
+   * after it stops. This is the half of the fix that catches someone who types a short
+   * message and sends it without ever pausing - the case the debounce structurally
+   * cannot see, measured on the real site as three of five messages never analysed.
+   *
+   * It does not replace the debounce. The debounce still produces the authoritative
+   * result at the normal threshold; this only produces an earlier, provisional one at a
+   * stricter threshold. */
+  function maybeAnalyzeWhileTyping() {
+    /* Disabled pending evidence - see PROVISIONAL_HEAT_THRESHOLD in config.js for the
+     * 20-fragment measurement that refuted the threshold this depends on. */
+    if (!config.FRAGMENT_TRIGGER_ENABLED) return;
+    try {
+      const box = self.SWY.selectors.composeBox({ record: false });
+      if (!box) return;
+
+      if (fragmentAnalysedForThisMessage) return;  /* single-shot: already had its look */
+
+      const text = readDraft(box);
+      if (text.length < config.FRAGMENT_TRIGGER_CHARS) return;
+      if (text === lastAnalyzed) return;
+
+      fragmentAnalysedForThisMessage = true;
+
+      /* Deliberately NOT setting `lastAnalyzed`: this is a provisional look at an
+       * unfinished draft, and the debounce must still analyse the finished text even if
+       * it happens to be identical. */
+      analyze(text, { provisional: true });
+    } catch (error) {
+      log('typing_analysis_failed', { error: String(error && error.message).slice(0, 160) }, 'warn');
+    }
+  }
+
   function scheduleAnalysis() {
+    maybeAnalyzeWhileTyping();
     if (debounceTimer) clearTimeout(debounceTimer);
     /* The debounce is the whole reason this is affordable. Without it every keystroke
      * would be a request; see config.js on why 1500ms and why this departs from the

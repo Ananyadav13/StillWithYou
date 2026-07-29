@@ -96,7 +96,7 @@ function startSlowServer(port) {
 
 /* ------------------------------------------------------------------- set-up */
 
-async function makePage(browser, { breakSelector = false, configBridge = null } = {}) {
+async function makePage(browser, { breakSelector = false, configBridge = null, storage = {} } = {}) {
   const page = await browser.newPage();
 
   const logs = [];
@@ -114,8 +114,8 @@ async function makePage(browser, { breakSelector = false, configBridge = null } 
 
   /* Stub the two chrome.* APIs the extension uses. Everything else is the real file. */
   await page.evaluateOnNewDocument(() => {});
-  await page.evaluate(() => {
-    window.__swyStorage = {};
+  await page.evaluate((__seed) => {
+    window.__swyStorage = __seed;
     window.__swyAnalyzeCalls = [];
     window.chrome = {
       runtime: {
@@ -142,7 +142,7 @@ async function makePage(browser, { breakSelector = false, configBridge = null } 
         },
       },
     };
-  });
+  }, storage);
 
   await page.addStyleTag({ content: read('banner.css') });
   await page.addScriptTag({ content: read('config.js') });
@@ -167,6 +167,14 @@ async function makePage(browser, { breakSelector = false, configBridge = null } 
       broken.targets.composeBox.selectors = ['div.swy-deliberately-broken-selector'];
       broken.version = -1;
       window.SWY.selectors.install(broken, 'remote', { reason: 'deliberate_break_test' });
+      /* Zero the detached grace period for the break tests.
+       *
+       * The indicator normally waits DETACHED_GRACE_MS before appearing, because
+       * WhatsApp swaps the compose box node routinely and a swap is not an outage. That
+       * is correct in production and useless in a test that wants to assert the outage
+       * path, so the grace is set to 0 here rather than sleeping 8s in five places.
+       * The grace period itself has its own dedicated test below. */
+      window.SWY.config.DETACHED_GRACE_MS = 0;
     });
   }
 
@@ -356,6 +364,62 @@ try {
   }
 
   /* =================================================================
+   * STEP 2b-ii — the detached grace period
+   *
+   * Regression test for a false positive seen on the real site: WhatsApp replaces the
+   * compose box node routinely, and the health check briefly read the gap as an outage,
+   * showing "couldn't attach" during normal use. Measured recoveries: ~5.7s and ~32s.
+   *
+   * Both directions are asserted. Suppressing a transient is only half the requirement -
+   * the other half is that a genuine outage is still reported, because a grace period
+   * that never expires is just a disabled indicator.
+   * ================================================================= */
+  header('STEP 2b-ii — compose box missing briefly (node swap) vs genuinely gone');
+
+  {
+    const { page, logs, pageErrors } = await makePage(browser);
+    await page.addScriptTag({ content: read('content.js') });
+    await sleep(300);
+
+    /* Short grace so the test runs in ~2s rather than 8. */
+    await page.evaluate(() => { window.SWY.config.DETACHED_GRACE_MS = 1200; });
+
+    /* Break the compose box, leaving #main so the conversation still reads as open -
+     * exactly the state a node swap produces. */
+    await page.evaluate(() => {
+      const broken = JSON.parse(JSON.stringify(window.SWY.selectors.FROZEN_CONFIG));
+      broken.targets.composeBox.selectors = ['div.swy-node-swap-in-progress'];
+      window.SWY.selectors.install(broken, 'remote', { reason: 'node_swap_test' });
+    });
+
+    const early = await page.evaluate(() => window.SWY.health.run('test_early').state);
+    const earlyIndicator = (await page.$('#swy-health-indicator')) !== null;
+    check('during the gap, state is `detaching` not `detached`', early === 'detaching', early);
+    check('during the gap, NO indicator is shown', earlyIndicator === false);
+    check(
+      'during the gap, no failure counted',
+      await page.evaluate(() => {
+        const f = window.__swyStorage.selector_failures;
+        return !f || !f.composeBox;
+      }),
+    );
+
+    await sleep(1500); /* outlast the grace */
+
+    const late = await page.evaluate(() => window.SWY.health.run('test_late').state);
+    const lateIndicator = (await page.$('#swy-health-indicator')) !== null;
+    check('once the grace expires, state is `detached`', late === 'detached', late);
+    check('once the grace expires, the indicator IS shown', lateIndicator === true);
+    check(
+      'once the grace expires, the failure IS counted',
+      await page.evaluate(() => Boolean(window.__swyStorage.selector_failures?.composeBox)),
+    );
+    check('grace transition logged with held_for_ms', logs.some((l) => l.includes('held_for_ms')));
+    check('no uncaught error', pageErrors.length === 0, pageErrors.join('; '));
+    await page.close();
+  }
+
+  /* =================================================================
    * STEP 2c — revert: normal operation resumes
    * ================================================================= */
   header('STEP 2c — reverted: normal operation resumes');
@@ -422,9 +486,24 @@ try {
       `${drafts.length} messages produced ${captures.length} captures, not ${totalKeystrokes}`,
       captures.length === drafts.length,
     );
-    check('one backend call per message, not per keystroke', analyzeCalls === drafts.length);
+    /* The contract changed when typing-time analysis was added, and this assertion
+     * changed with it rather than being loosened until it passed.
+     *
+     * OLD: exactly one call per message. That was only achievable because the extension
+     * waited for a pause - and waiting for a pause is precisely what made it miss three
+     * of five real messages, which is the defect this feature fixes.
+     *
+     * NEW: at most one provisional call per TYPING_ANALYSIS_INTERVAL_MS of typing, plus
+     * one authoritative call per message. The property still worth defending is the one
+     * that mattered all along: nothing close to per-keystroke. */
+    const maxExpected = drafts.length * 4;
     check(
-      `debounce suppressed ${totalKeystrokes - analyzeCalls} of ${totalKeystrokes} possible calls`,
+      `${analyzeCalls} calls for ${drafts.length} messages (<= ${maxExpected}), not ${totalKeystrokes} keystrokes`,
+      analyzeCalls >= drafts.length && analyzeCalls <= maxExpected,
+      `${analyzeCalls}`,
+    );
+    check(
+      `suppressed ${totalKeystrokes - analyzeCalls} of ${totalKeystrokes} possible calls`,
       analyzeCalls < totalKeystrokes / 5,
     );
     check(
@@ -526,7 +605,10 @@ try {
 
     console.log(`\n   api.js returned: ${JSON.stringify(seen[0])}`);
 
-    check('api.js resolved rather than threw', seen.length === 1);
+    /* >= 1 rather than == 1: typing-time analysis can produce a provisional call before
+     * the authoritative one. What is being asserted is that api.js RESOLVES rather than
+     * throwing, which is true of every call, not that exactly one was made. */
+    check('api.js resolved rather than threw', seen.length >= 1, `${seen.length} call(s)`);
     check('failure classified as unreachable', seen[0] && seen[0].reason === 'unreachable', seen[0] && seen[0].reason);
     check('NO banner shown', (await page.$('#swy-nudge-banner')) === null);
     check('NO health indicator shown — this is not a DOM problem', (await page.$('#swy-health-indicator')) === null);

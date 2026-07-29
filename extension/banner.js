@@ -91,15 +91,26 @@ self.SWY = self.SWY || {};
    *
    * @param {string} text     the draft this result describes
    * @param {object|null} analysis  the /analyze-preview body, or null to clear
+   * @param {{provisional?: boolean}} [options] a provisional result describes a draft
+   *        the user is still typing, so it must clear a higher bar - see
+   *        PROVISIONAL_HEAT_THRESHOLD in config.js for the measured reason.
    */
-  function render(text, analysis) {
+  function render(text, analysis, options) {
     try {
       if (!analysis || typeof analysis.heat_score !== 'number') {
         remove();
         return false;
       }
 
-      if (analysis.heat_score < config.HEAT_THRESHOLD) {
+      const provisional = Boolean(options && options.provisional);
+      const threshold = provisional
+        ? config.PROVISIONAL_HEAT_THRESHOLD
+        : config.HEAT_THRESHOLD;
+
+      if (analysis.heat_score < threshold) {
+        /* Below the bar. If a provisional banner is currently up and the FINISHED draft
+         * comes back calm, this is what retracts it - a nudge raised against a fragment
+         * must not survive the finished message disproving it. */
         remove();
         return false;
       }
@@ -170,9 +181,10 @@ self.SWY = self.SWY || {};
 
       log('banner_shown', {
         tone,
+        provisional,
         mood: analysis.mood,
         heat_score: analysis.heat_score,
-        threshold: config.HEAT_THRESHOLD,
+        threshold,
         source: analysis.source,
         language: analysis.language,
       });

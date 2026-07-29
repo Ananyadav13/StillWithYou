@@ -67,6 +67,96 @@ self.SWY.config = {
    * "ok"/"hm" and cost an inference to learn nothing. */
   MIN_CHARS: 8,
 
+  /* ---------------------------------------------------------------------------
+   * FRAGMENT TRIGGER — three constants, chosen together, and currently DISABLED.
+   *
+   * These are documented as one block because they are not independent. The trigger
+   * length decides which messages can ever be examined; the threshold decides whether
+   * what it sees is acted on. Tuning either alone produces a number that looks defensible
+   * and means nothing.
+   *
+   * WHAT IT WAS FOR
+   * ---------------
+   * The debounce cannot catch someone who types continuously and sends without pausing.
+   * Measured on the real site: three of five messages produced `draft_captured chars:0` -
+   * the pause timer fired after the message was already gone, read an empty box, and
+   * never requested analysis. Those three were the short, fast, escalating ones, i.e.
+   * exactly the population this product exists to catch. This was the attempt to close
+   * that gap by taking one look mid-typing.
+   *
+   * WHY IT IS OFF
+   * -------------
+   * Measured across 40 messages x 4 trigger lengths x 3 thresholds - 20 messages from
+   * the Phase 3 corpus (60-90 chars) and 20 short messages written blind for this test
+   * (10-19 chars), fragments always cut at a word boundary. Best cell in the entire
+   * surface:
+   *
+   *     L=12, threshold 0.45  ->  2/10 heated caught (20%), 0/10 false fires
+   *
+   * Four of five heated messages get no warning at any setting. On the long-message
+   * corpus the catch rate is 0-10% at every cell. There is no pair worth shipping, so
+   * the honest state is off with the gap documented rather than a feature that almost
+   * never fires.
+   *
+   * THE MESSAGE-LENGTH FLOOR, AND THE DEEPER REASON
+   * -----------------------------------------------
+   * A trigger of L characters can only ever examine messages of at least L characters.
+   * Measured reachability on the short set: L=10 reaches 10/10 heated, L=12 reaches
+   * 9/10, L=14 reaches 5/10, L=16 reaches 5/10. So a long trigger is structurally blind
+   * to short messages - and short messages are the failing population.
+   *
+   * But shortening the trigger does not rescue it, and the reason is the interesting
+   * part. "you are a disgrace" - the message this whole investigation started from - is
+   * never caught at any setting:
+   *
+   *     L=10   0.18   "you are a"
+   *     L=12   0.18   "you are a"
+   *     L=14   unreachable (nearest word boundary is char 9)
+   *
+   * The heat lives in the word being TYPED. Cutting at a word boundary always truncates
+   * immediately before it. Measured mid-word for contrast, n=4 and unrepresentative:
+   * "you are a disg" scores 0.59 against "you are a" at 0.18. That suggests the
+   * word-boundary rule, adopted to avoid feeding the tokenizer odd input, is what removes
+   * the signal - but four hand-picked examples are exactly the evidence that produced the
+   * discredited 0.50 in the first place, so it is logged as an untested hypothesis, not
+   * a finding. Testing it properly means re-running the full grid mid-word.
+   *
+   * Fragment scores are NOT noisier at short lengths - mean |fragment - full| is flat at
+   * ~0.14 across all four lengths on the corpus set. The failure is not noise. Short
+   * fragments score uniformly LOW, so heated messages are systematically underestimated
+   * (worst divergences: -0.45, -0.29, all heated, none calm-overestimated). Flatness, not
+   * variance, is what kills it.
+   * ------------------------------------------------------------------------- */
+
+  /* Off. See above. With it off, the silent-failure gap in docs/phase5-scope.md stays
+   * open: a message typed and sent inside DEBOUNCE_MS is never analysed. That is a known
+   * documented hole, which is a better state than a feature firing on 2 of 10 genuine
+   * warnings. */
+  FRAGMENT_TRIGGER_ENABLED: false,
+
+  /* The best pair the measurement found, retained so that any future attempt starts from
+   * a measured point rather than a guess. They are NOT good enough to enable, and should
+   * not be read as a recommendation - 20% catch is the ceiling they represent. */
+  FRAGMENT_TRIGGER_CHARS: 12,
+  PROVISIONAL_HEAT_THRESHOLD: 0.45,
+
+  /* How long the compose box must stay missing, while a conversation is open, before the
+   * health check calls it an outage.
+   *
+   * WhatsApp replaces the compose box node routinely - `compose_box_attached` recurs
+   * throughout a normal session. Between the old node going and the new one arriving,
+   * `#main` still matches, so the check briefly concludes "chat open, compose box gone"
+   * and shows the "couldn't attach" indicator. Measured on the real site: two such
+   * episodes recovered on their own after ~5.7s and ~32s.
+   *
+   * 8s clears the 5.7s transient while still reporting anything longer. The cost is that
+   * a genuine DOM break is announced 8s late, which is nothing against a failure measured
+   * in days. The alternative fix - tightening `conversationOpen` to require the compose
+   * box - was rejected: it silences the false positive and the true positive together,
+   * which is the wrong direction for a design whose premise is that absence of a warning
+   * must never read as calm. */
+  DETACHED_GRACE_MS: 8000,
+
   /* chrome.storage.local key holding per-target selector failure counts. */
   FAILURE_STORE_KEY: 'selector_failures',
 };
