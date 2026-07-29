@@ -307,6 +307,79 @@ try {
   }
 
   /* =================================================================
+   * STEP 2a-iv — a rejected match must not end the chain
+   *
+   * Regression test for a live outage: draft capture went completely silent on
+   * web.whatsapp.com and stayed silent across extension reloads.
+   *
+   * Three things composed. A broad `div[role="textbox"][aria-label]` rung matched
+   * WhatsApp's SEARCH box; the self-tuning order promoted that rung to the front and
+   * PERSISTED the hint to chrome.storage.local; and composeBox() rejected the
+   * footer-less match by returning null instead of continuing down the chain - so the
+   * correct rung at index 0 was never reached. The hint outliving reloads is what made
+   * it permanent.
+   *
+   * The 69-check harness could not have caught it: every run starts with empty storage,
+   * so no hint persists, and the fixture's compose box is inside a <footer>, so the
+   * guard never fires. Both conditions are properties of the fixture, not the extension.
+   * This test supplies both.
+   * ================================================================= */
+  header('STEP 2a-iv — persisted selector hint pointing at a footer-less match');
+
+  {
+    const { page, logs, pageErrors } = await makePage(browser, {
+      storage: { selector_last_success: { composeBox: 4 } },
+    });
+    /* WhatsApp has a chat-search box: role="textbox" with an aria-label, NOT in a
+     * footer. The broad rung matches it. */
+    await page.evaluate(() => {
+      const s = document.createElement('div');
+      s.setAttribute('role', 'textbox');
+      s.setAttribute('aria-label', 'Search input textbox');
+      document.body.insertBefore(s, document.body.firstChild);
+    });
+    /* Install a config that HAS the broad rung, rather than relying on the shipped one.
+     * v3 removed that rung, which is correct defence in depth - but this test exists to
+     * prove the CODE no longer abandons the chain, and it must keep proving that whatever
+     * the config happens to contain. Otherwise a future config edit could silently
+     * un-test the fix. */
+    await page.evaluate(() => {
+      const cfg = JSON.parse(JSON.stringify(window.SWY.selectors.FROZEN_CONFIG));
+      cfg.targets.composeBox.selectors = [
+        ...cfg.targets.composeBox.selectors,
+        'div[role="textbox"][aria-label]',
+      ];
+      window.SWY.selectors.install(cfg, 'remote', { reason: 'broad_rung_regression_test' });
+    });
+
+    /* The full pipeline is the property under test - the live regression killed capture
+     * AND everything downstream of it - so the backend bridge is wired up here. */
+    await page.exposeFunction('__swyBridge', async (content) => analyzePreview(API_BASE, content));
+
+    await page.addScriptTag({ content: read('content.js') });
+    await sleep(400);
+
+    await page.focus('#fixture-compose');
+    await page.type('#fixture-compose', 'you are a disgrace', { delay: 25 });
+    await sleep(4000);
+
+    const has = (e) => logs.some((l) => l.includes(`"event":"${e}"`));
+    check('search box was rejected, not accepted', has('compose_box_outside_footer'));
+    check('chain CONTINUED and attached to the real compose box', has('compose_box_attached'));
+    check('draft capture still works', has('draft_captured'));
+    check('analysis still runs', has('analysis_result'));
+    check(
+      'the compose box found is the one in the footer',
+      await page.evaluate(() => {
+        const el = window.SWY.selectors.composeBox();
+        return Boolean(el && el.closest('footer'));
+      }),
+    );
+    check('no uncaught error', pageErrors.length === 0, pageErrors.join('; '));
+    await page.close();
+  }
+
+  /* =================================================================
    * STEP 2b — the deliberate break
    * ================================================================= */
   header('STEP 2b — selector deliberately broken (every composeBox rung → no match)');

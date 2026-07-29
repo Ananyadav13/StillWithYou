@@ -18,9 +18,9 @@
     "sendButton is a HEALTH CANARY and is never bound to. Adding a selector here does",
     "not and must not make the extension interact with WhatsApp's send."
   ],
-  "version": 2,
-  "updated": "2026-07-29T00:00:00Z",
-  "note": "v2 adds a broader ARIA-scoped composeBox fallback rung below the existing chain. Introduced during the Track B propagation test and kept because it is a genuine improvement: it degrades one step further before the chain runs out. Measured propagation main->CDN: 248s.",
+  "version": 3,
+  "updated": "2026-07-29T02:00:00Z",
+  "note": "v3 removes the broad div[role=\"textbox\"][aria-label] rung added in v2. It matched WhatsApp's search box, and combined with the persisted self-tuning hint it silenced draft capture entirely on the real site. The code-level fix (a rejected match no longer ends the selector chain) makes the rung safe, but it was filler added to have something to push during a propagation test and earns no place in the chain on its own merits.",
   "targets": {
     "composeBox": {
       "critical": true,
@@ -29,8 +29,7 @@
         "footer div[contenteditable=\"true\"][data-tab=\"10\"]",
         "#main footer div[contenteditable=\"true\"]",
         "footer div[role=\"textbox\"][contenteditable=\"true\"]",
-        "div[role=\"textbox\"][contenteditable=\"true\"]",
-        "div[role=\"textbox\"][aria-label]"
+        "div[role=\"textbox\"][contenteditable=\"true\"]"
       ]
     },
     "sendButton": {

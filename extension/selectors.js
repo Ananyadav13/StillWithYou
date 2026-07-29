@@ -58,8 +58,8 @@ self.SWY = self.SWY || {};
    * change. Re-sync afterwards: `node fixtures/sync-snapshot.mjs --fix`.
    * ------------------------------------------------------------------------- */
   const FROZEN_CONFIG = {
-    "version": 2,
-    "updated": "2026-07-29T00:00:00Z",
+    "version": 3,
+    "updated": "2026-07-29T02:00:00Z",
     "targets": {
       "composeBox": {
         "critical": true,
@@ -68,8 +68,7 @@ self.SWY = self.SWY || {};
           "footer div[contenteditable=\"true\"][data-tab=\"10\"]",
           "#main footer div[contenteditable=\"true\"]",
           "footer div[role=\"textbox\"][contenteditable=\"true\"]",
-          "div[role=\"textbox\"][contenteditable=\"true\"]",
-          "div[role=\"textbox\"][aria-label]"
+          "div[role=\"textbox\"][contenteditable=\"true\"]"
         ]
       },
       "sendButton": {
@@ -176,6 +175,29 @@ self.SWY = self.SWY || {};
    * are fire-and-forget and can never reject into a caller: a storage failure must not
    * be able to break DOM resolution, which is the thing that actually matters.
    * ------------------------------------------------------------------------- */
+
+  /* Per-target veto on a matched element, applied by `resolve` for EVERY caller.
+   *
+   * This lives with the target rather than with the caller on purpose. It used to be
+   * passed in by composeBox(), which meant the health check - which calls resolve()
+   * directly - did not apply it, and would happily report the search box as a healthy
+   * compose box while composeBox() itself rejected the same element. Two answers to one
+   * question is worse than either answer. */
+  const REJECTORS = {
+    /* The broad rungs also match WhatsApp's chat-search box, a role="textbox" outside any
+     * footer. Analysing that would mean sending the user's search query to the backend -
+     * wrong, and a privacy problem, since a search box is not a draft. */
+    composeBox: (element, index) => {
+      if (index < 3) return false;            /* specific rungs are trusted as-is */
+      try {
+        if (element.closest('footer')) return false;
+      } catch (_) {
+        return true;
+      }
+      log('compose_box_outside_footer', { matchedIndex: index }, 'warn');
+      return true;                             /* skip this rung, keep walking */
+    },
+  };
 
   /* One entry per target, holding the last outcome logged or counted.
    *
@@ -309,6 +331,9 @@ self.SWY = self.SWY || {};
    */
   function resolve(target, options) {
     const record = !options || options.record !== false;
+    /* Optional caller-supplied veto on a matched element. Applied inside the chain walk
+     * so a rejected match falls through to the next rung instead of ending resolution. */
+    const reject = REJECTORS[target] || null;
     const spec = currentTargets()[target];
     const attempted = [];
 
@@ -337,6 +362,11 @@ self.SWY = self.SWY || {};
       const selector = spec.selectors[i];
       attempted.push(selector);
       const element = trySelector(selector);
+      if (element && reject && reject(element, i)) {
+        /* Matched, but the caller says this is the wrong element. Treat it exactly like a
+         * miss and keep walking - never let a rejected match end the search. */
+        continue;
+      }
       if (element) {
         rememberSuccess(target, i);
         if (i > 0 && lastOutcome[target] !== `degraded:${i}`) {
@@ -383,28 +413,38 @@ self.SWY = self.SWY || {};
     return resolve(target).element;
   }
 
-  /* The last rung of the composeBox chain also matches the chat-search box, so prefer a
-   * match that is inside a footer when the chain had to fall that far. Cheap, and it
-   * stops the degraded path from quietly analysing the user's search query — which
-   * would be both wrong and a privacy problem, since a search box is not a draft. */
+  /* The broad rungs of the composeBox chain also match WhatsApp's chat-search box, which
+   * is a role="textbox" outside any footer. So a match from rung 3 onward is only
+   * accepted if it sits inside a footer - otherwise the extension would quietly analyse
+   * the user's search query, which is both wrong and a privacy problem, since a search
+   * box is not a draft.
+   *
+   * REJECTING A MATCH MUST NOT ABANDON THE CHAIN. This previously returned null the
+   * moment a late rung matched something outside a footer, which meant the earlier,
+   * correct rungs were never tried - `resolve` stops at its first match, so index 0 was
+   * unreachable once a broad rung matched first.
+   *
+   * That was survivable until two other things lined up. A broad
+   * `div[role="textbox"][aria-label]` rung was added to the remote config, and the
+   * self-tuning order promotes whichever index last matched to the front and PERSISTS it
+   * to chrome.storage.local. Once that hint pointed at the broad rung, every resolution
+   * matched the search box first, got rejected here, and returned null - so the compose
+   * box was never found, no input listener was ever attached, and draft capture went
+   * silent. Permanently, and across extension reloads, because the hint outlives them.
+   *
+   * The fix is to treat a footer-less match as a rung that did not match, and keep going.
+   * `resolve` takes a `reject` predicate so the skipping happens inside the chain walk
+   * where it belongs, rather than as a post-filter that can only say yes or no to the
+   * one answer it was handed.
+   */
   function composeBox(options) {
     /* No chat open means no compose box, and that is not a fault. Resolving anyway would
      * log and count a failure on every load before the user clicks a conversation - see
      * `isConversationOpen`. */
     if (!isConversationOpen()) return null;
-
-    const found = resolve('composeBox', options);
-    if (!found.element || found.matchedIndex < 3) return found.element;
-    try {
-      const scoped = found.element.closest('footer');
-      if (!scoped) {
-        log('compose_box_outside_footer', { matched: found.matchedSelector }, 'warn');
-        return null;
-      }
-    } catch (_) {
-      return null;
-    }
-    return found.element;
+    /* The footer check lives in REJECTORS so every caller gets it, including the health
+     * check. See the comment there for the outage that taught us that. */
+    return resolve('composeBox', options).element;
   }
 
   /** Read the persisted failure counts. Resolves to `{}` on any problem. */
